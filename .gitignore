@@ -5,3 +5,5 @@ uploads/
 data/
 *.log
 migrate-prompt.txt
+
+.vercel

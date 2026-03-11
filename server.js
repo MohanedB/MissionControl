@@ -13,7 +13,7 @@ const supabase = require('./lib/supabase');
 
 const IS_VERCEL  = !!process.env.VERCEL;
 const JWT_SECRET = process.env.MC_JWT_SECRET || 'dev-secret';
-const MC_PASSWORD = process.env.MC_PASSWORD || 'shadow2026';
+const MC_PASSWORD = (process.env.MC_PASSWORD || 'shadow2026').trim();
 const OPENCLAW_TOKEN = 'mc-shadow-2026';
 
 function requireAuth(req, res, next) {
