@@ -1,0 +1,19 @@
+node:_http_outgoing:699
+    throw new ERR_HTTP_HEADERS_SENT('set');
+    ^
+
+Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+    at ServerResponse.setHeader (node:_http_outgoing:699:11)
+    at ServerResponse.header (C:\GITHUB\MissionControl\node_modules\express\lib\response.js:794:10)
+    at ServerResponse.send (C:\GITHUB\MissionControl\node_modules\express\lib\response.js:174:12)
+    at ServerResponse.json (C:\GITHUB\MissionControl\node_modules\express\lib\response.js:278:15)
+    at sendStatus (C:\GITHUB\MissionControl\server.js:328:9)
+    at ClientRequest.<anonymous> (C:\GITHUB\MissionControl\server.js:315:68)
+    at Object.onceWrapper (node:events:638:28)
+    at ClientRequest.emit (node:events:524:28)
+    at Socket.emitRequestTimeout (node:_http_client:863:9)
+    at Object.onceWrapper (node:events:638:28) {
+  code: 'ERR_HTTP_HEADERS_SENT'
+}
+
+Node.js v22.13.1
