@@ -116,9 +116,22 @@ async function startAgentPolling() {
   await loadLogs();
 }
 
+function getLocalApiBase() {
+  // On Vercel, agent-status comes from local PC via Tailscale
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocal) return '';
+  // Injected by server at page load, or fallback
+  return window.__LOCAL_API_URL__ || '';
+}
+
 async function loadAgentStatus() {
   try {
-    const data = await API.get('/api/agent-status');
+    const base = getLocalApiBase();
+    const url = base ? base + '/api/agent-status' : '/api/agent-status';
+    const token = localStorage.getItem('mc_token') || '';
+    const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) throw new Error('Status ' + res.status);
+    const data = await res.json();
 
     // Gateway indicator
     const dot   = document.getElementById('gwDot');
@@ -358,7 +371,11 @@ function startResetTimer(seconds) {
 
 async function loadLogs() {
   try {
-    const data = await API.get('/api/logs');
+    const base = getLocalApiBase();
+    const url = base ? base + '/api/logs' : '/api/logs';
+    const token = localStorage.getItem('mc_token') || '';
+    const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    const data = await res.json();
     const el = document.getElementById('liveLogs');
     if (!el) return;
     if (!data.lines?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No recent logs</span>'; return; }
@@ -375,7 +392,11 @@ async function controlGateway(action) {
   const outEl = document.getElementById('controlOutput');
   if (outEl) { outEl.style.display='block'; outEl.textContent='Running…'; }
   try {
-    const data = await API.post('/api/openclaw/control', { action });
+    const base = getLocalApiBase();
+    const url = base ? base + '/api/openclaw/control' : '/api/openclaw/control';
+    const token = localStorage.getItem('mc_token') || '';
+    const res2 = await fetch(url, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    const data = await res2.json();
     if (outEl) outEl.textContent = data.output || (data.ok ? 'Done.' : data.error || 'Error');
     toast(data.ok ? 'Done' : (data.error || 'Error'), data.ok ? 'success' : 'error');
     setTimeout(() => loadAgentStatus(), 2000);

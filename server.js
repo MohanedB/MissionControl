@@ -31,9 +31,21 @@ const CHAT_UPLOADS_DIR = path.join(__dirname, 'uploads', 'chat');
 
 [DATA_DIR, UPLOADS_DIR, CHAT_UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://mission-control-wheat-pi.vercel.app', /\.vercel\.app$/, /\.ts\.net$/],
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Inject LOCAL_API_URL into index.html for Vercel → local PC bridging
+app.get('/', (req, res, next) => {
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  let html = fs.readFileSync(indexPath, 'utf8');
+  const localUrl = (process.env.LOCAL_API_URL || '').trim();
+  html = html.replace('</head>', `<script>window.__LOCAL_API_URL__="${localUrl}";</script>\n</head>`);
+  res.send(html);
+});
 
 const upload     = multer({ dest: UPLOADS_DIR });
 const chatUpload = multer({ dest: CHAT_UPLOADS_DIR, limits: { fileSize: 5 * 1024 * 1024 } });
