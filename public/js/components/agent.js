@@ -116,17 +116,25 @@ async function startAgentPolling() {
   await loadLogs();
 }
 
-function getLocalApiBase() {
-  // On Vercel, agent-status comes from local PC via Tailscale
+let _localApiBase = null;
+async function getLocalApiBase() {
+  if (_localApiBase !== null) return _localApiBase;
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if (isLocal) return '';
-  // Injected by server at page load, or fallback
-  return window.__LOCAL_API_URL__ || '';
+  if (isLocal) { _localApiBase = ''; return ''; }
+  // Try injected var first, then fetch config
+  if (window.__LOCAL_API_URL__) { _localApiBase = window.__LOCAL_API_URL__; return _localApiBase; }
+  try {
+    const token = localStorage.getItem('mc_token') || '';
+    const r = await fetch('/api/config', { headers: { 'Authorization': 'Bearer ' + token } });
+    const cfg = await r.json();
+    _localApiBase = cfg.localApiUrl || '';
+  } catch { _localApiBase = ''; }
+  return _localApiBase;
 }
 
 async function loadAgentStatus() {
   try {
-    const base = getLocalApiBase();
+    const base = await getLocalApiBase();
     const url = base ? base + '/api/agent-status' : '/api/agent-status';
     const token = localStorage.getItem('mc_token') || '';
     const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
@@ -371,7 +379,7 @@ function startResetTimer(seconds) {
 
 async function loadLogs() {
   try {
-    const base = getLocalApiBase();
+    const base = await getLocalApiBase();
     const url = base ? base + '/api/logs' : '/api/logs';
     const token = localStorage.getItem('mc_token') || '';
     const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
@@ -392,7 +400,7 @@ async function controlGateway(action) {
   const outEl = document.getElementById('controlOutput');
   if (outEl) { outEl.style.display='block'; outEl.textContent='Running…'; }
   try {
-    const base = getLocalApiBase();
+    const base = await getLocalApiBase();
     const url = base ? base + '/api/openclaw/control' : '/api/openclaw/control';
     const token = localStorage.getItem('mc_token') || '';
     const res2 = await fetch(url, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });

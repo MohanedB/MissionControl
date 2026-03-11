@@ -36,15 +36,21 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files (except index.html — handled below)
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-// Inject LOCAL_API_URL into index.html for Vercel → local PC bridging
-app.get('/', (req, res, next) => {
+// Inject LOCAL_API_URL into index.html
+app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'public', 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
   const localUrl = (process.env.LOCAL_API_URL || '').trim();
   html = html.replace('</head>', `<script>window.__LOCAL_API_URL__="${localUrl}";</script>\n</head>`);
   res.send(html);
+});
+
+// Config endpoint — lets frontend know the local API URL
+app.get('/api/config', (req, res) => {
+  res.json({ localApiUrl: (process.env.LOCAL_API_URL || '').trim() });
 });
 
 const upload     = multer({ dest: UPLOADS_DIR });
@@ -692,6 +698,7 @@ const OPENCLAW_PS1 = 'C:\\Users\\mohan\\AppData\\Roaming\\npm\\openclaw.ps1';
 const NODE_EXE    = process.execPath;
 
 app.post('/api/openclaw/control', requireAuth, (req, res) => {
+  if (IS_VERCEL) return res.json({ ok: false, output: '⚠️ Gateway control not available in cloud mode.\nUse localhost:3000 to control the gateway.' });
   const { action } = req.body;
   if (!['start','stop','status'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
 
