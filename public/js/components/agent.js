@@ -210,21 +210,14 @@ async function loadAgentStatus() {
     if (dot)   { dot.classList.toggle('online', data.gateway); dot.classList.toggle('offline', !data.gateway); }
     if (!data._stale && label) label.textContent = data.gateway ? `🟢 Online ${data.gatewayMs ? '· ' + data.gatewayMs + 'ms' : ''}` : '🔴 Offline';
 
-    // ─── LLM indicator ───────────────────────────────────────────────────────
-    try {
-      // Use the active API profile's model (the one actually used for the last request)
-      const apis = data.apis;
-      let currentModel = 'unknown';
-      if (apis && apis.activeProfile && apis.profiles && apis.profiles[apis.activeProfile]) {
-        currentModel = apis.profiles[apis.activeProfile].model || apis.profiles[apis.activeProfile].provider || currentModel;
-      }
-      const llmDot = document.getElementById('llmDot');
-      const llmLbl = document.getElementById('llmLabel');
-      if (llmDot && llmLbl) {
-        llmDot.style.background = '#4caf50';
-        llmLbl.textContent = `LLM: ${currentModel}`;
-      }
-    } catch(e) { console.error('LLM display error', e); }
+    // After processing gateway status, show the current LLM
+    const llmDot = document.getElementById('llmDot');
+    const llmLbl = document.getElementById('llmLabel');
+    if (llmDot && llmLbl) {
+      const modelName = data.model || 'unknown';
+      llmDot.style.background = '#4caf50'; // green = OK
+      llmLbl.textContent = `LLM: ${modelName}`;
+    }
 
 
     // TODAY block

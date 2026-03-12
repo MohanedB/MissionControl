@@ -662,7 +662,16 @@ function collectAgentStatus(gateway, gatewayMs) {
   const uptimeMins = Math.round((Date.now() - _tokenStats.startedAt) / 60000);
   return {
     gateway, gatewayMs,
-    model: 'claude-sonnet-4-6',
+    // Resolve the primary model from OpenClaw config (dynamic)
+    let primaryModel = 'unknown';
+    try {
+      const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        primaryModel = cfg?.agents?.defaults?.model?.primary || primaryModel;
+      }
+    } catch(e) { /* ignore */ }
+    const model = primaryModel;
     discord: discord ? {
       tokensUsed: discord.used, tokensTotal: discord.total, pct: discord.pct,
       cacheHitRate: discord.cacheRate, age: discord.ageLabel,
