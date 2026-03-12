@@ -623,6 +623,33 @@ function parseOpenclawStatus() {
 
 // ─── API: Agent Status ────────────────────────────────────────────────────────
 app.get('/api/agent-status', requireAuth, (req, res) => {
+  // On Vercel: proxy to local Mission Control via Tailscale
+  if (IS_VERCEL) {
+    const localUrl = (process.env.LOCAL_API_URL || '').trim();
+    if (!localUrl) {
+      return res.json({ gateway: false, _cloud: true, _error: 'LOCAL_API_URL not set on Vercel' });
+    }
+    const target = new URL('/api/agent-status', localUrl);
+    const isHttps = target.protocol === 'https:';
+    const lib = isHttps ? require('https') : require('http');
+    const proxyReq = lib.request(
+      { hostname: target.hostname, port: target.port || (isHttps ? 443 : 80), path: target.pathname, method: 'GET',
+        headers: { Authorization: req.headers.authorization || '' }, timeout: 5000 },
+      (proxyRes) => {
+        let body = '';
+        proxyRes.on('data', c => body += c);
+        proxyRes.on('end', () => {
+          try { res.json({ ...JSON.parse(body), _cloud: true, _proxied: true }); }
+          catch { res.status(502).json({ gateway: false, _cloud: true, _error: 'Bad response from local' }); }
+        });
+      }
+    );
+    proxyReq.on('error', (e) => res.json({ gateway: false, _cloud: true, _error: 'Local unreachable: ' + e.message }));
+    proxyReq.on('timeout', () => { proxyReq.destroy(); res.json({ gateway: false, _cloud: true, _error: 'Local timed out' }); });
+    proxyReq.end();
+    return;
+  }
+
   // Probe gateway
   let gateway = false;
   let gatewayMs = null;
