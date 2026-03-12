@@ -157,10 +157,19 @@ function _setCloudModePlaceholder() {
 }
 
 async function loadAgentStatus() {
-  if (_setCloudModePlaceholder()) return; // early exit in cloud mode
+  // On cloud: disable gateway controls, but still fetch data via server-side Tailscale proxy
+  const isCloud = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  if (isCloud) {
+    ['btnStart','btnStop'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) { btn.disabled = true; btn.title = 'Only available on localhost'; }
+    });
+    const outEl = document.getElementById('controlOutput');
+    if (outEl) { outEl.style.display = 'block'; outEl.textContent = '⚠️ Gateway control not available in cloud mode.\nOpen localhost:3000 to start/stop the gateway.'; }
+  }
   try {
-    const base = await getLocalApiBase();
-    const url = base ? base + '/api/agent-status' : '/api/agent-status';
+    // Always use relative URL — on Vercel the server proxies to local via Tailscale
+    const url = '/api/agent-status';
     const token = localStorage.getItem('mc_token') || '';
     const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
     if (res.status === 401) {
@@ -171,6 +180,19 @@ async function loadAgentStatus() {
     }
     if (!res.ok) throw new Error('Status ' + res.status);
     const data = await res.json();
+
+    // If proxy failed (Tailscale unreachable), show error
+    if (data._error) {
+      const dot = document.getElementById('gwDot');
+      const lbl = document.getElementById('gwLabel');
+      if (dot) { dot.classList.remove('online'); dot.classList.add('offline'); }
+      if (lbl) lbl.textContent = '☁️ Local unreachable — ' + data._error;
+      ['todayBlock','discordTokenBlock','apisBlock','sessionsList'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `<div style="color:var(--text-muted);font-size:.85rem;padding:8px 0">⚠️ Can't reach local machine: ${data._error}</div>`;
+      });
+      return;
+    }
 
     // Gateway indicator
     const dot   = document.getElementById('gwDot');
