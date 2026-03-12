@@ -41,6 +41,20 @@ app.use(express.json({ limit: '10mb' }));
 // Serve static files (except index.html — handled below)
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
+// API: LLM info – reads OpenClaw config and returns current primary + fallbacks
+app.get('/api/llm', requireAuth, (req, res) => {
+  try {
+    const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(cfgPath)) return res.json({ error: 'OpenClaw config not found' });
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    const primary = cfg?.agents?.defaults?.model?.primary || 'unknown';
+    const fallbacks = cfg?.agents?.defaults?.model?.fallbacks || [];
+    res.json({ primary, fallbacks });
+  } catch(e) {
+    res.json({ error: e.message });
+  }
+});
+
 // Inject LOCAL_API_URL into index.html
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'public', 'index.html');
