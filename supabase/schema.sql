@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS settings (
   value JSONB
 );
 
+-- Agent status (pushed by local server every 30s, read by Vercel)
+CREATE TABLE IF NOT EXISTS agent_status (
+  id TEXT PRIMARY KEY DEFAULT 'main',
+  data JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable RLS (optional but good practice — disable for now since we use JWT at app level)
 -- ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 -- etc.

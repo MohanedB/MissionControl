@@ -194,11 +194,17 @@ async function loadAgentStatus() {
       return;
     }
 
+    // Stale warning (cloud mode, data > 2 min old)
+    if (data._stale) {
+      const lbl = document.getElementById('gwLabel');
+      if (lbl) lbl.textContent = `⚠️ Stale data (${data._ageSeconds}s ago) — is local server running?`;
+    }
+
     // Gateway indicator
     const dot   = document.getElementById('gwDot');
     const label = document.getElementById('gwLabel');
     if (dot)   { dot.classList.toggle('online', data.gateway); dot.classList.toggle('offline', !data.gateway); }
-    if (label) label.textContent = data.gateway ? `🟢 Online ${data.gatewayMs ? '· ' + data.gatewayMs + 'ms' : ''}` : '🔴 Offline';
+    if (!data._stale && label) label.textContent = data.gateway ? `🟢 Online ${data.gatewayMs ? '· ' + data.gatewayMs + 'ms' : ''}` : '🔴 Offline';
 
     // TODAY block
     const todayEl = document.getElementById('todayBlock');

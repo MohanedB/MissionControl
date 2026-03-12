@@ -621,105 +621,91 @@ function parseOpenclawStatus() {
   }
 }
 
-// ─── API: Agent Status ────────────────────────────────────────────────────────
-app.get('/api/agent-status', requireAuth, (req, res) => {
-  // On Vercel: proxy to local Mission Control via Tailscale
-  if (IS_VERCEL) {
-    const localUrl = (process.env.LOCAL_API_URL || '').trim();
-    if (!localUrl) {
-      return res.json({ gateway: false, _cloud: true, _error: 'LOCAL_API_URL not set on Vercel' });
-    }
-    const target = new URL('/api/agent-status', localUrl);
-    const isHttps = target.protocol === 'https:';
-    const lib = isHttps ? require('https') : require('http');
-    const proxyReq = lib.request(
-      { hostname: target.hostname, port: target.port || (isHttps ? 443 : 80), path: target.pathname, method: 'GET',
-        headers: { Authorization: req.headers.authorization || '' }, timeout: 5000 },
-      (proxyRes) => {
-        let body = '';
-        proxyRes.on('data', c => body += c);
-        proxyRes.on('end', () => {
-          try { res.json({ ...JSON.parse(body), _cloud: true, _proxied: true }); }
-          catch { res.status(502).json({ gateway: false, _cloud: true, _error: 'Bad response from local' }); }
-        });
-      }
-    );
-    proxyReq.on('error', (e) => res.json({ gateway: false, _cloud: true, _error: 'Local unreachable: ' + e.message }));
-    proxyReq.on('timeout', () => { proxyReq.destroy(); res.json({ gateway: false, _cloud: true, _error: 'Local timed out' }); });
-    proxyReq.end();
-    return;
-  }
+// ─── Agent Status: shared collector ──────────────────────────────────────────
+function collectAgentStatus(gateway, gatewayMs) {
+  const clawStatus   = parseOpenclawStatus();
+  const discord      = clawStatus.discord;
+  const todayUsage   = getTodayUsage();
+  const authProfiles = getAuthProfiles();
+  const settings     = readJSON('settings.json', {});
+  const dailyBudget  = settings.dailyTokenBudget || 500000;
+  const costIn  = (_tokenStats.tokensIn  / 1_000_000) * 3;
+  const costOut = (_tokenStats.tokensOut / 1_000_000) * 15;
+  const estCost = (_tokenStats.calls > 0) ? (costIn + costOut).toFixed(4) : null;
+  const uptimeMins = Math.round((Date.now() - _tokenStats.startedAt) / 60000);
+  return {
+    gateway, gatewayMs,
+    model: 'claude-sonnet-4-6',
+    discord: discord ? {
+      tokensUsed: discord.used, tokensTotal: discord.total, pct: discord.pct,
+      cacheHitRate: discord.cacheRate, age: discord.ageLabel,
+      inputTokens: discord.inputTokens, outputTokens: discord.outputTokens,
+      cacheRead: discord.cacheRead, model: discord.model
+    } : null,
+    sessions: clawStatus.sessions,
+    rateLimitAt: clawStatus.rateLimitAt,
+    resetInSeconds: clawStatus.resetInSeconds,
+    today: todayUsage ? {
+      inputFresh: todayUsage.inputFresh, outputFresh: todayUsage.outputFresh,
+      cacheRead: todayUsage.cacheRead,
+      freshTokens: todayUsage.inputFresh + todayUsage.outputFresh,
+      totalTokens: todayUsage.totalTokensToday, cost: todayUsage.totalCost,
+      calls: todayUsage.calls, budget: dailyBudget,
+      pct: Math.min(100, Math.round(((todayUsage.inputFresh + todayUsage.outputFresh) / dailyBudget) * 100)),
+      remaining: Math.max(0, dailyBudget - todayUsage.inputFresh - todayUsage.outputFresh)
+    } : null,
+    dashboardCalls: _tokenStats.calls,
+    estimatedCost: estCost,
+    uptimeMins,
+    apis: authProfiles,
+    skills: ['gemini','github','gog','discord','weather','coding-agent','healthcheck','mcporter','skill-creator'],
+    updatedAt: new Date().toISOString()
+  };
+}
 
-  // Probe gateway
-  let gateway = false;
-  let gatewayMs = null;
-  let sent = false;
-  const t0 = Date.now();
-  const probe = http.request({ hostname: '127.0.0.1', port: 18789, path: '/', method: 'HEAD' }, (r) => {
-    gateway = r.statusCode < 500;
-    gatewayMs = Date.now() - t0;
-    r.resume();
-    if (!sent) { sent = true; sendStatus(); }
-  });
-  probe.on('error', () => { if (!sent) { sent = true; sendStatus(); } });
-  probe.setTimeout(2000, () => { probe.destroy(); gateway = false; if (!sent) { sent = true; sendStatus(); } });
-  probe.end();
-
-  function sendStatus() {
-    const clawStatus   = parseOpenclawStatus();
-    const discord      = clawStatus.discord;
-    const todayUsage   = getTodayUsage();
-    const authProfiles = getAuthProfiles();
-    const settings     = readJSON('settings.json', {});
-    const dailyBudget  = settings.dailyTokenBudget || 500000;
-
-    // Cost estimate from dashboard chat calls
-    const costIn  = (_tokenStats.tokensIn  / 1_000_000) * 3;
-    const costOut = (_tokenStats.tokensOut / 1_000_000) * 15;
-    const estCost = (_tokenStats.calls > 0) ? (costIn + costOut).toFixed(4) : null;
-    const uptimeMins = Math.round((Date.now() - _tokenStats.startedAt) / 60000);
-
-    res.json({
-      gateway, gatewayMs,
-      model: 'claude-sonnet-4-6',
-      // Discord session (main session)
-      discord: discord ? {
-        tokensUsed:   discord.used,
-        tokensTotal:  discord.total,
-        pct:          discord.pct,
-        cacheHitRate: discord.cacheRate,
-        age:          discord.ageLabel,
-        inputTokens:  discord.inputTokens,
-        outputTokens: discord.outputTokens,
-        cacheRead:    discord.cacheRead,
-        model:        discord.model
-      } : null,
-      // All sessions
-      sessions: clawStatus.sessions,
-      // Rate limit
-      rateLimitAt: clawStatus.rateLimitAt,
-      resetInSeconds: clawStatus.resetInSeconds,
-      // Today's token usage across ALL sessions
-      today: todayUsage ? {
-        inputFresh:  todayUsage.inputFresh,
-        outputFresh: todayUsage.outputFresh,
-        cacheRead:   todayUsage.cacheRead,
-        freshTokens: todayUsage.inputFresh + todayUsage.outputFresh,
-        totalTokens: todayUsage.totalTokensToday,
-        cost:        todayUsage.totalCost,
-        calls:       todayUsage.calls,
-        budget:      dailyBudget,
-        pct:         Math.min(100, Math.round(((todayUsage.inputFresh + todayUsage.outputFresh) / dailyBudget) * 100)),
-        remaining:   Math.max(0, dailyBudget - todayUsage.inputFresh - todayUsage.outputFresh)
-      } : null,
-      dashboardCalls: _tokenStats.calls,
-      estimatedCost: estCost,
-      uptimeMins,
-      apis: authProfiles,
-      skills: ['gemini','github','gog','discord','weather','coding-agent','healthcheck','mcporter','skill-creator'],
-      updatedAt: new Date().toISOString()
+// Probe gateway, collect status, return as promise
+function probeAndCollect() {
+  return new Promise((resolve) => {
+    let done = false;
+    const t0 = Date.now();
+    const probe = http.request({ hostname: '127.0.0.1', port: 18789, path: '/', method: 'HEAD' }, (r) => {
+      const gw = r.statusCode < 500;
+      const ms = Date.now() - t0;
+      r.resume();
+      if (!done) { done = true; resolve(collectAgentStatus(gw, ms)); }
     });
+    probe.on('error', () => { if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
+    probe.setTimeout(2000, () => { probe.destroy(); if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
+    probe.end();
+  });
+}
+
+// Push status to Supabase (runs locally every 30s)
+async function pushStatusToSupabase() {
+  try {
+    const data = await probeAndCollect();
+    await supabase.from('agent_status').upsert({ id: 'main', data, updated_at: new Date().toISOString() });
+  } catch (e) { /* silent — don't crash the server */ }
+}
+
+// ─── API: Agent Status ────────────────────────────────────────────────────────
+app.get('/api/agent-status', requireAuth, async (req, res) => {
+  // On Vercel: read from Supabase (local server pushes here every 30s)
+  if (IS_VERCEL) {
+    try {
+      const { data, error } = await supabase.from('agent_status').select('data, updated_at').eq('id', 'main').single();
+      if (error || !data) return res.json({ gateway: false, _cloud: true, _error: 'No status in Supabase yet — is local server running?' });
+      const ageMs = Date.now() - new Date(data.updated_at).getTime();
+      const stale = ageMs > 120_000; // >2 min = stale
+      return res.json({ ...data.data, _cloud: true, _stale: stale, _ageSeconds: Math.round(ageMs / 1000) });
+    } catch (e) {
+      return res.json({ gateway: false, _cloud: true, _error: e.message });
+    }
   }
+
+  // Local: probe gateway and return live data
+  const data = await probeAndCollect();
+  res.json(data);
 });
 
 // ─── API: OpenClaw Control ────────────────────────────────────────────────────
@@ -772,4 +758,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`║  Local:   http://localhost:${PORT}              ║`);
   console.log(`║  Network: http://${localIP}:${PORT}         ║`);
   console.log('╚══════════════════════════════════════════════╝\n');
+
+  // Push agent status to Supabase every 30s so Vercel can read it
+  pushStatusToSupabase();
+  setInterval(pushStatusToSupabase, 30_000);
+  console.log('📡 Agent status sync to Supabase started (every 30s)');
 });
