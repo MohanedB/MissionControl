@@ -212,19 +212,20 @@ async function loadAgentStatus() {
 
     // ─── LLM indicator ───────────────────────────────────────────────────────
     try {
-      const llmRes = await fetch('/api/llm', { headers: { 'Authorization': 'Bearer ' + token } });
-      if (llmRes.ok) {
-        const llm = await llmRes.json();
-        const llmDot = document.getElementById('llmDot');
-        const llmLbl = document.getElementById('llmLabel');
-        if (llmDot && llmLbl) {
-          llmDot.style.background = '#4caf50';
-          const primary = llm.primary || 'unknown';
-          const fallbacks = (llm.fallbacks || []).join(', ');
-          llmLbl.textContent = fallbacks ? `LLM: ${primary} (fallbacks: ${fallbacks})` : `LLM: ${primary}`;
-        }
+      // Use the active API profile's model (the one actually used for the last request)
+      const apis = data.apis;
+      let currentModel = 'unknown';
+      if (apis && apis.activeProfile && apis.profiles && apis.profiles[apis.activeProfile]) {
+        currentModel = apis.profiles[apis.activeProfile].model || apis.profiles[apis.activeProfile].provider || currentModel;
       }
-    } catch(e) { console.error('LLM fetch error', e); }
+      const llmDot = document.getElementById('llmDot');
+      const llmLbl = document.getElementById('llmLabel');
+      if (llmDot && llmLbl) {
+        llmDot.style.background = '#4caf50';
+        llmLbl.textContent = `LLM: ${currentModel}`;
+      }
+    } catch(e) { console.error('LLM display error', e); }
+
 
     // TODAY block
     const todayEl = document.getElementById('todayBlock');
