@@ -349,7 +349,20 @@ app.delete('/api/queue/:id', requireAuth, async (req, res) => {
   }
 });
 
-// ─── API: Settings ────────────────────────────────────────────────────────────
+// ─── API: LLM Info ───────────────────────────────────────────────────────────────
+app.get('/api/llm', requireAuth, (req, res) => {
+  try {
+    const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(cfgPath)) return res.json({ error: 'OpenClaw config not found' });
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    const primary = cfg?.agents?.defaults?.model?.primary || 'unknown';
+    const fallbacks = cfg?.agents?.defaults?.model?.fallbacks || [];
+    res.json({ primary, fallbacks });
+  } catch(e) {
+    res.json({ error: e.message });
+  }
+});
+
 app.get('/api/settings', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase.from('settings').select('*');

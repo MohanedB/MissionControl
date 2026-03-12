@@ -265,7 +265,7 @@ const App = {
       content.innerHTML = html;
       if (page === 'uploads') loadUploadsList();
       if (page === 'projects') rebindProjects();
-      if (page === 'agent') startAgentPolling();
+      if (page === 'agent') { startAgentPolling(); loadLLMInfo(); }
       if (page === 'chat') setTimeout(() => document.getElementById('chatInput')?.focus(), 100);
     } catch(e) {
       content.innerHTML = `<div class="empty-state"><h3>Error loading page</h3><p>${e.message}</p><button class="btn btn-secondary" onclick="refreshPage()">Retry</button></div>`;

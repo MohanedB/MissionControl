@@ -67,9 +67,14 @@
         <div class="status-dot online"></div>
         <span>OpenClaw Agent: Online</span>
       </div>
+      <div class="llm-status" style="margin-top:8px;display:flex;align-items:center;gap:4px;color:var(--text-muted);font-size:.78rem;">
+        <div class="status-dot" id="llmDot" style="width:8px;height:8px;background:#555;border-radius:50%;"></div>
+        <span id="llmLabel">LLM: loading…</span>
+      </div>
       <button onclick="logout()" style="width:100%;background:transparent;border:1px solid var(--border-muted,#30363d);border-radius:6px;color:var(--text-muted,#8b949e);font-size:.78rem;padding:7px 12px;cursor:pointer;margin-top:8px;transition:border-color .15s,color .15s" onmouseover="this.style.color='var(--danger,#f85149)';this.style.borderColor='var(--danger,#f85149)'" onmouseout="this.style.color='var(--text-muted,#8b949e)';this.style.borderColor='var(--border-muted,#30363d)'">
         Sign out
       </button>
+
     </div>
   </nav>
 

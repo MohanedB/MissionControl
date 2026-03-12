@@ -489,4 +489,28 @@ function fmtNum(n) {
   if (n >= 1_000) return Math.round(n/1_000)+'k';
   return String(n);
 }
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// ─── LLM Info ─────────────────────────────────────────────────────────────────
+async function loadLLMInfo() {
+  try {
+    const token = localStorage.getItem('mc_token') || '';
+    const res = await fetch('/api/llm', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (res.status === 401) { localStorage.removeItem('mc_token'); window.location.replace('/login.html'); return; }
+    const data = await res.json();
+    const dot = document.getElementById('llmDot');
+    const lbl = document.getElementById('llmLabel');
+    if (!dot || !lbl) return;
+    if (data.error) { dot.style.background = '#777'; lbl.textContent = `LLM: ${data.error}`; return; }
+    const primary = data.primary || 'unknown';
+    const fallbacks = (data.fallbacks || []).join(', ');
+    const label = fallbacks ? `${primary} (fallbacks: ${fallbacks})` : primary;
+    dot.style.background = '#4caf50'; // green
+    lbl.textContent = `LLM: ${label}`;
+  } catch(e) {
+    const dot = document.getElementById('llmDot');
+    const lbl = document.getElementById('llmLabel');
+    if (dot) dot.style.background = '#777';
+    if (lbl) lbl.textContent = 'LLM: error';
+    console.error('loadLLMInfo error', e);
+  }
+}
+
