@@ -19,6 +19,10 @@ async function renderAgent() {
           <div class="status-dot" id="gwDot"></div>
           <span id="gwLabel" style="font-size:.78rem;color:var(--text-secondary)">Checking…</span>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <div class="status-dot" id="llmDot" style="background:#777"></div>
+          <span id="llmLabel" style="font-size:.78rem;color:var(--text-secondary)">LLM: loading…</span>
+        </div>
       </div>
       <div id="todayBlock"><div style="color:var(--text-muted);font-size:.85rem;padding:8px 0">Loading…</div></div>
     </div>
@@ -205,6 +209,22 @@ async function loadAgentStatus() {
     const label = document.getElementById('gwLabel');
     if (dot)   { dot.classList.toggle('online', data.gateway); dot.classList.toggle('offline', !data.gateway); }
     if (!data._stale && label) label.textContent = data.gateway ? `🟢 Online ${data.gatewayMs ? '· ' + data.gatewayMs + 'ms' : ''}` : '🔴 Offline';
+
+    // ─── LLM indicator ───────────────────────────────────────────────────────
+    try {
+      const llmRes = await fetch('/api/llm', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (llmRes.ok) {
+        const llm = await llmRes.json();
+        const llmDot = document.getElementById('llmDot');
+        const llmLbl = document.getElementById('llmLabel');
+        if (llmDot && llmLbl) {
+          llmDot.style.background = '#4caf50';
+          const primary = llm.primary || 'unknown';
+          const fallbacks = (llm.fallbacks || []).join(', ');
+          llmLbl.textContent = fallbacks ? `LLM: ${primary} (fallbacks: ${fallbacks})` : `LLM: ${primary}`;
+        }
+      }
+    } catch(e) { console.error('LLM fetch error', e); }
 
     // TODAY block
     const todayEl = document.getElementById('todayBlock');
