@@ -132,12 +132,43 @@ async function getLocalApiBase() {
   return _localApiBase;
 }
 
+function _setCloudModePlaceholder() {
+  const isCloud = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  if (!isCloud) return false;
+  const dot = document.getElementById('gwDot');
+  const lbl = document.getElementById('gwLabel');
+  if (dot) { dot.classList.remove('online'); dot.classList.add('offline'); }
+  if (lbl) lbl.textContent = '☁️ Cloud mode — gateway not reachable';
+  const cloudMsg = `<div style="color:var(--text-muted);font-size:.85rem;padding:8px 0">☁️ Non disponible en mode cloud — utilise <strong>localhost:3000</strong> pour voir les données en direct</div>`;
+  ['todayBlock','discordTokenBlock','apisBlock','sessionsList'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = cloudMsg;
+  });
+  const logsEl = document.getElementById('liveLogs');
+  if (logsEl) logsEl.innerHTML = '<span style="color:var(--text-muted)">Logs only available on local dashboard</span>';
+  // Disable gateway control buttons
+  ['btnStart','btnStop'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.disabled = true; btn.title = 'Only available on localhost'; }
+  });
+  const outEl = document.getElementById('controlOutput');
+  if (outEl) { outEl.style.display = 'block'; outEl.textContent = '⚠️ Gateway control not available in cloud mode.\nOpen localhost:3000 to start/stop the gateway.'; }
+  return true;
+}
+
 async function loadAgentStatus() {
+  if (_setCloudModePlaceholder()) return; // early exit in cloud mode
   try {
     const base = await getLocalApiBase();
     const url = base ? base + '/api/agent-status' : '/api/agent-status';
     const token = localStorage.getItem('mc_token') || '';
     const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    if (res.status === 401) {
+      // Stale token — send to login
+      localStorage.removeItem('mc_token');
+      window.location.replace('/login.html');
+      return;
+    }
     if (!res.ok) throw new Error('Status ' + res.status);
     const data = await res.json();
 
@@ -357,7 +388,16 @@ async function loadAgentStatus() {
 
   } catch(e) {
     const dot = document.getElementById('gwDot');
-    if (dot) dot.classList.add('offline');
+    const lbl = document.getElementById('gwLabel');
+    if (dot) { dot.classList.remove('online'); dot.classList.add('offline'); }
+    if (lbl) lbl.textContent = '🔴 Offline';
+    const errMsg = `<div style="color:var(--danger);font-size:.85rem;padding:8px 0">⚠️ Erreur: ${e.message}</div>`;
+    ['todayBlock','discordTokenBlock','apisBlock','sessionsList'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.textContent.trim() === 'Loading…') el.innerHTML = errMsg;
+    });
+    const logsEl = document.getElementById('liveLogs');
+    if (logsEl && logsEl.textContent.trim() === 'Loading…') logsEl.innerHTML = '<span style="color:var(--danger)">Failed to load logs</span>';
     console.error(e);
   }
 }
