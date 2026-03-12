@@ -29,7 +29,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const CHAT_UPLOADS_DIR = path.join(__dirname, 'uploads', 'chat');
 
-[DATA_DIR, UPLOADS_DIR, CHAT_UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+if (!IS_VERCEL) {
+  [DATA_DIR, UPLOADS_DIR, CHAT_UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+}
 
 app.use(cors({
   origin: ['http://localhost:3000', 'https://mission-control-wheat-pi.vercel.app', /\.vercel\.app$/, /\.ts\.net$/],
