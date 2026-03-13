@@ -123,3 +123,15 @@ body.compact .form-group { margin-bottom: 10px; }
 .md-li { margin-bottom: 5px; line-height: 1.7; }
 .md-ul .md-li { list-style: disc; }
 .md-ol .md-li { list-style: decimal; }
+
+/* --- Online status dot pulse animation --- */
+.status-dot.online {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+  animation: pulse-green 2s infinite;
+}
+@keyframes pulse-green {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
+}

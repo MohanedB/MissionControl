@@ -363,20 +363,6 @@ app.delete('/api/queue/:id', requireAuth, async (req, res) => {
   }
 });
 
-// ─── API: LLM Info ───────────────────────────────────────────────────────────────
-app.get('/api/llm', requireAuth, (req, res) => {
-  try {
-    const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-    if (!fs.existsSync(cfgPath)) return res.json({ error: 'OpenClaw config not found' });
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    const primary = cfg?.agents?.defaults?.model?.primary || 'unknown';
-    const fallbacks = cfg?.agents?.defaults?.model?.fallbacks || [];
-    res.json({ primary, fallbacks });
-  } catch(e) {
-    res.json({ error: e.message });
-  }
-});
-
 app.get('/api/settings', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase.from('settings').select('*');
@@ -500,7 +486,10 @@ app.post('/api/chat', requireAuth, (req, res) => {
       } catch {}
     });
   });
-  proxyReq.on('error', (e) => res.status(502).json({ error: 'Gateway unreachable: ' + e.message }));
+  proxyReq.on('error', (e) => {
+    if (!res.headersSent) res.status(502).json({ error: 'Gateway unreachable: ' + e.message });
+    else res.end();
+  });
   proxyReq.write(payload);
   proxyReq.end();
 });
@@ -549,6 +538,31 @@ function getAuthProfiles() {
         activeProfile = name;
       }
     }
+
+    // Ensure all configured providers show up (even if no auth-profiles entry yet)
+    try {
+      const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        const configProfiles = cfg?.auth?.profiles || {};
+        for (const [name, cp] of Object.entries(configProfiles)) {
+          if (!result[name]) {
+            result[name] = {
+              provider: cp.provider,
+              type: cp.mode || 'api_key',
+              masked: '—',
+              errorCount: 0,
+              failureCounts: {},
+              lastUsed: null,
+              lastUsedAgo: null,
+              onCooldown: false,
+              cooldownSecs: 0,
+              lastFailureAt: null,
+            };
+          }
+        }
+      }
+    } catch {}
 
     return { profiles: result, activeProfile };
   } catch(e) {
@@ -660,18 +674,36 @@ function collectAgentStatus(gateway, gatewayMs) {
   const costOut = (_tokenStats.tokensOut / 1_000_000) * 15;
   const estCost = (_tokenStats.calls > 0) ? (costIn + costOut).toFixed(4) : null;
   const uptimeMins = Math.round((Date.now() - _tokenStats.startedAt) / 60000);
+  // Resolve the primary model + fallbacks from OpenClaw config (dynamic)
+  let primaryModel = 'unknown';
+  let fallbackModels = [];
+  let modelConfig = {};
+  try {
+    const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      primaryModel = cfg?.agents?.defaults?.model?.primary || primaryModel;
+      fallbackModels = cfg?.agents?.defaults?.model?.fallbacks || [];
+      // Build per-provider model info
+      const allModels = [primaryModel, ...fallbackModels];
+      const TOKEN_LIMITS = { anthropic: 80000, google: 1000000, ollama: null };
+      allModels.forEach((m, i) => {
+        const provider = m.split('/')[0];
+        const modelName = m.split('/').slice(1).join('/');
+        modelConfig[provider] = {
+          model: modelName || m,
+          fullModel: m,
+          role: i === 0 ? 'Primary' : `Fallback #${i}`,
+          tokenLimit: TOKEN_LIMITS[provider] || null,
+        };
+      });
+    }
+  } catch(e) { /* ignore */ }
   return {
     gateway, gatewayMs,
-    // Resolve the primary model from OpenClaw config (dynamic)
-    let primaryModel = 'unknown';
-    try {
-      const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-      if (fs.existsSync(cfgPath)) {
-        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        primaryModel = cfg?.agents?.defaults?.model?.primary || primaryModel;
-      }
-    } catch(e) { /* ignore */ }
-    const model = primaryModel;
+    model: primaryModel,
+    fallbacks: fallbackModels,
+    modelConfig,
     discord: discord ? {
       tokensUsed: discord.used, tokensTotal: discord.total, pct: discord.pct,
       cacheHitRate: discord.cacheRate, age: discord.ageLabel,
