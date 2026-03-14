@@ -139,15 +139,15 @@ async function loadAgentStatus() {
     }
 
     // DÉTERMINER LE MODÈLE ACTIF (réel)
-    let activeModel = _currentPrimary; 
-    if (data.discord && data.discord.model) {
-      activeModel = data.discord.model;
-    } else if (data.sessions && data.sessions.length > 0) {
-      activeModel = data.sessions[0].model || activeModel;
-    } else if (data.apis && data.apis.activeProfile) {
-      const ap = data.apis.profiles[data.apis.activeProfile];
-      activeModel = ap && ap.model ? ap.model : data.apis.activeProfile;
-    }
+let activeModel = data.model || _currentPrimary;
+if (!data.model) {
+  if (data.sessions && data.sessions.length > 0) {
+    activeModel = data.sessions[0].model || activeModel;
+  } else if (data.apis && data.apis.activeProfile) {
+    const ap = data.apis.profiles[data.apis.activeProfile];
+    activeModel = ap && ap.model ? ap.model : data.apis.activeProfile;
+  }
+}
 
     // MAJ CARTE HAUTE
     const activeModelEl = document.getElementById('activeModelDisplay');
@@ -277,25 +277,66 @@ async function loadLogs() {
 
 async function controlGateway(action) {
   const outEl = document.getElementById('controlOutput');
-  if (outEl) { 
-    outEl.style.display='block'; 
-    outEl.innerHTML = `> Executing command: <span style="color:#fff">${action.toUpperCase()}</span>...\n`; 
+  const btnStart = document.getElementById('btnStart');
+  const btnStop  = document.getElementById('btnStop');
+
+  // Disable buttons during execution
+  if (btnStart) btnStart.disabled = true;
+  if (btnStop)  btnStop.disabled  = true;
+
+  if (outEl) {
+    outEl.style.display = 'block';
+    outEl.innerHTML = `<span style="color:var(--accent)">></span> Executing: <span style="color:#fff;font-weight:600">${action.toUpperCase()}</span>...\n`;
   }
+
+  const label = { start: 'INITIALISER', stop: 'COUPER' };
+  const re = (msg, isErr) => {
+    if (outEl) outEl.innerHTML += `\n<span style="color:${isErr?'var(--danger)':'var(--success)'}">> ${msg}</span>`;
+    setTimeout(() => {
+      if (btnStart) btnStart.disabled = false;
+      if (btnStop)  btnStop.disabled  = false;
+      loadAgentStatus();
+      setTimeout(() => { if (outEl) outEl.style.display = 'none'; }, 3000);
+    }, 1200);
+  };
+
   try {
     const token = localStorage.getItem('mc_token') || '';
-    const res = await fetch('/api/openclaw/control', { 
-      method: 'POST', 
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ action }) 
+    const res = await fetch('/api/openclaw/control', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
     });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      re('Server error ' + res.status + ': ' + txt, true);
+      return;
+    }
+
     const data = await res.json();
-    if (outEl) outEl.innerHTML += `> Response: ${data.output || 'Success'}\n> System updating...`;
-    setTimeout(() => {
-      loadAgentStatus();
-      if (outEl) outEl.style.display='none';
-    }, 2500);
-  } catch(e) { 
-    if (outEl) outEl.innerHTML += `<span style="color:#ff4757;">> FATAL ERROR: ${e.message}</span>`; 
+    const out = (data.output || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+    if (outEl && out) {
+      out.split('\n').forEach(line => {
+        if (!line.trim()) return;
+        const color = line.toLowerCase().includes('error') ? 'var(--danger)'
+                    : line.toLowerCase().includes('warn')  ? 'var(--warning)'
+                    : 'var(--text-secondary)';
+        outEl.innerHTML += `\n<span style="color:${color}">  ${line}</span>`;
+      });
+    }
+
+    re(data.ok ? `${action.toUpperCase()} — OK` : (data.output || 'Completed'), !data.ok);
+
+  } catch(e) {
+    // Network-level failure — server unreachable or crashed
+    const hint = e.message === 'Failed to fetch'
+      ? 'Serveur inaccessible. Vérifie que node server.js tourne sur localhost:3000.'
+      : e.message;
+    re('ERREUR: ' + hint, true);
+    if (btnStart) btnStart.disabled = false;
+    if (btnStop)  btnStop.disabled  = false;
   }
 }
 

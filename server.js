@@ -94,65 +94,30 @@ function calcProgress(tasks) {
   return Math.round((tasks.filter(t => t.status === 'done').length / tasks.length) * 100);
 }
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
+// ─── Supabase shape helpers ───────────────────────────────────────────────────
 
-function seedProjects() {
-  if (!fs.existsSync(path.join(DATA_DIR, 'projects.json'))) {
-    const projects = [
-      { id: uid(), name: 'TazUE', engine: 'Unreal Engine 5', status: 'Active', description: 'Team project of 10 at UQAT. Platformer with custom Taz movement component. Uses Perforce + local backup.', tags: ['school', 'team', 'UE5'], repoUrl: '', progress: 60, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [
-          { id: uid(), title: 'Fix cheese stack memory leak', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
-          { id: uid(), title: 'Fix coyote time not reading from preset', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
-          { id: uid(), title: 'Fix UpdateTazState using GetMaxSpeed instead of actual velocity', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
-          { id: uid(), title: 'Extract duplicate wall-sweep code to helper', status: 'todo', priority: 'medium', createdAt: new Date().toISOString() },
-          { id: uid(), title: 'Fix Look() camera smoothing (interpolates from 0 each frame)', status: 'todo', priority: 'medium', createdAt: new Date().toISOString() }
-        ], notes: [] },
-      { id: uid(), name: 'NightboundSurvivor', engine: 'Unreal Engine 5', status: 'Active', description: 'Personal UE5 survivor-style game project.', tags: ['personal', 'UE5', 'survivor'], repoUrl: '', progress: 25, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'Counterforce', engine: 'Unreal Engine 5', status: 'Paused', description: 'School project built in UE5.', tags: ['school', 'UE5'], repoUrl: '', progress: 80, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'AlgoQuest', engine: 'C++', status: 'Active', description: 'Algorithm and data structures C++ project.', tags: ['school', 'cpp', 'algorithms'], repoUrl: '', progress: 40, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'PGJ1303', engine: 'C++ / SFML', status: 'Active', description: 'School exercises using SFML and ImGui.', tags: ['school', 'cpp', 'sfml', 'imgui'], repoUrl: '', progress: 50, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'DrawOnConsole', engine: 'C++', status: 'Paused', description: 'Console drawing utility in C++.', tags: ['personal', 'cpp'], repoUrl: '', progress: 70, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'EndlessRunner', engine: 'Unity', status: 'Complete', description: 'Unity endless runner game.', tags: ['personal', 'unity'], repoUrl: '', progress: 100, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'NecroNightmare', engine: 'Unity', status: 'Paused', description: 'Unity horror game project.', tags: ['personal', 'unity', 'horror'], repoUrl: '', progress: 30, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'GameJam2025', engine: 'Unity', status: 'Complete', description: '2025 game jam submission built in Unity.', tags: ['gamejam', 'unity'], repoUrl: '', progress: 100, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-      { id: uid(), name: 'CarMathProject', engine: 'Unity', status: 'Complete', description: 'Math visualization with Unity - car physics.', tags: ['school', 'unity', 'math'], repoUrl: '', progress: 100, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tasks: [], notes: [] },
-    ];
-    writeJSON('projects.json', projects);
-  }
+function toFrontendProject(p) {
+  return {
+    id: p.id, name: p.name, engine: p.engine, status: p.status,
+    description: p.description, tags: p.tags || [], repoUrl: p.repo_url || '',
+    language: p.language || null,
+    progress: p.progress || 0, createdAt: p.created_at, updatedAt: p.updated_at,
+    tasks: p.project_tasks || p.tasks || [],
+    notes: p.project_notes || p.notes || [],
+  };
 }
-
-function seedNotes() {
-  if (!fs.existsSync(path.join(DATA_DIR, 'notes.json'))) {
-    writeJSON('notes.json', [
-      { id: uid(), title: 'Mission Control setup', content: 'Dashboard initialized. All projects pre-loaded. OpenClaw connected.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['meta'] }
-    ]);
-  }
+function toSupabaseProject(body) {
+  return {
+    name: body.name, engine: body.engine || 'Autre', status: body.status || 'Active',
+    description: body.description || '', tags: body.tags || [],
+    repo_url: body.repoUrl || body.repo_url || '',
+    language: body.language || null,
+    progress: body.progress || 0,
+  };
 }
-
-function seedSettings() {
-  if (!fs.existsSync(path.join(DATA_DIR, 'settings.json'))) {
-    writeJSON('settings.json', {
-      theme: 'dark', ownerName: 'Shadow', ownerHandle: 'shadow9887',
-      accentColor: '#58a6ff', language: 'en', compactMode: false,
-      autoRefresh: true, autoRefreshInterval: 30, defaultPage: 'dashboard',
-      dateFormat: 'relative', sidebarCollapsed: false, chatUploadEnabled: true
-    });
-  }
-}
-
-function seedQueue() {
-  if (!fs.existsSync(path.join(DATA_DIR, 'queue.json'))) {
-    writeJSON('queue.json', [
-      { id: uid(), title: 'Fix Look() smoothing bug in TazMovementComponent', status: 'queued', priority: 'medium', project: 'TazUE', createdAt: new Date().toISOString() },
-      { id: uid(), title: 'Review SimpleCharacter.cpp for FBaseMovementStats TOptional bug', status: 'queued', priority: 'medium', project: 'TazUE', createdAt: new Date().toISOString() },
-    ]);
-  }
-}
-
-function seedTasks() {
-  if (!fs.existsSync(path.join(DATA_DIR, 'tasks.json'))) writeJSON('tasks.json', []);
-}
-
-seedProjects(); seedNotes(); seedSettings(); seedQueue(); seedTasks();
+function toFrontendNote(n)      { return { ...n, createdAt: n.created_at, updatedAt: n.updated_at }; }
+function toFrontendQueueItem(q) { return { ...q, createdAt: q.created_at }; }
+function toFrontendTask(t)      { return { ...t, createdAt: t.created_at, progressNote: t.progress_note }; }
 
 // ─── API: Auth ────────────────────────────────────────────────────────────────
 app.post('/api/auth/login', (req, res) => {
@@ -165,226 +130,191 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/check', requireAuth, (req, res) => res.json({ ok: true }));
 
 // ─── API: Projects ────────────────────────────────────────────────────────────
+
 app.get('/api/projects', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*, project_tasks(*), project_notes(*)')
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    const projects = (data || []).map(p => ({
-      ...p,
-      tasks: p.project_tasks || [],
-      notes: p.project_notes || [],
-      project_tasks: undefined,
-      project_notes: undefined
-    }));
-    res.json(projects);
-  } catch(e) {
-    // fallback to JSON if Supabase not configured
-    res.json(readJSON('projects.json'));
-  }
+  const { data, error } = await supabase.from('projects').select('*, project_tasks(*), project_notes(*)').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json((data || []).map(toFrontendProject));
 });
 app.post('/api/projects', requireAuth, async (req, res) => {
-  try {
-    const p = { id: uid(), tags: [], progress: 0, repo_url: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...req.body };
-    const { data, error } = await supabase.from('projects').insert([p]).select().single();
-    if (error) throw error;
-    res.json({ ...data, tasks: [], notes: [] });
-  } catch(e) {
-    const projects = readJSON('projects.json');
-    const p = { id: uid(), tasks: [], notes: [], progress: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...req.body };
-    projects.push(p); writeJSON('projects.json', projects); res.json(p);
-  }
+  const row = { id: uid(), ...toSupabaseProject(req.body), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from('projects').insert([row]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendProject(data));
 });
 app.get('/api/projects/:id', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('projects').select('*, project_tasks(*), project_notes(*)').eq('id', req.params.id).single();
-    if (error) throw error;
-    res.json({ ...data, tasks: data.project_tasks || [], notes: data.project_notes || [], project_tasks: undefined, project_notes: undefined });
-  } catch(e) {
-    const p = readJSON('projects.json').find(x => x.id === req.params.id);
-    if (!p) return res.status(404).json({ error: 'Not found' }); res.json(p);
-  }
+  const { data, error } = await supabase.from('projects').select('*, project_tasks(*), project_notes(*)').eq('id', req.params.id).single();
+  if (error) return res.status(404).json({ error: 'Not found' });
+  res.json(toFrontendProject(data));
 });
 app.put('/api/projects/:id', requireAuth, async (req, res) => {
-  try {
-    const updates = { ...req.body, updated_at: new Date().toISOString() };
-    delete updates.tasks; delete updates.notes; delete updates.project_tasks; delete updates.project_notes;
-    const { data, error } = await supabase.from('projects').update(updates).eq('id', req.params.id).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const projects = readJSON('projects.json');
-    const i = projects.findIndex(x => x.id === req.params.id);
-    if (i === -1) return res.status(404).json({ error: 'Not found' });
-    projects[i] = { ...projects[i], ...req.body, id: req.params.id, updatedAt: new Date().toISOString() };
-    writeJSON('projects.json', projects); res.json(projects[i]);
-  }
+  const updates = { ...toSupabaseProject(req.body), updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from('projects').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendProject(data));
 });
 app.delete('/api/projects/:id', requireAuth, async (req, res) => {
-  try {
-    const { error } = await supabase.from('projects').delete().eq('id', req.params.id);
-    if (error) throw error;
-    res.json({ ok: true });
-  } catch(e) {
-    writeJSON('projects.json', readJSON('projects.json').filter(x => x.id !== req.params.id)); res.json({ ok: true });
-  }
+  const { error } = await supabase.from('projects').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 app.post('/api/projects/:id/tasks', requireAuth, async (req, res) => {
-  try {
-    const task = { id: uid(), project_id: req.params.id, status: 'todo', priority: 'medium', created_at: new Date().toISOString(), ...req.body };
-    const { data, error } = await supabase.from('project_tasks').insert([task]).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const projects = readJSON('projects.json');
-    const p = projects.find(x => x.id === req.params.id);
-    if (!p) return res.status(404).json({ error: 'Not found' });
-    const task = { id: uid(), status: 'todo', priority: 'medium', createdAt: new Date().toISOString(), ...req.body };
-    p.tasks.push(task); p.updatedAt = new Date().toISOString(); p.progress = calcProgress(p.tasks);
-    writeJSON('projects.json', projects); res.json(task);
-  }
+  const task = { id: uid(), project_id: req.params.id, status: 'todo', priority: 'medium', created_at: new Date().toISOString(), ...req.body };
+  const { data, error } = await supabase.from('project_tasks').insert([task]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  const { data: allTasks } = await supabase.from('project_tasks').select('status').eq('project_id', req.params.id);
+  await supabase.from('projects').update({ progress: calcProgress(allTasks || []), updated_at: new Date().toISOString() }).eq('id', req.params.id);
+  res.json(data);
 });
 app.put('/api/projects/:id/tasks/:taskId', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('project_tasks').update(req.body).eq('id', req.params.taskId).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const projects = readJSON('projects.json');
-    const p = projects.find(x => x.id === req.params.id);
-    if (!p) return res.status(404).json({ error: 'Not found' });
-    const ti = p.tasks.findIndex(t => t.id === req.params.taskId);
-    if (ti === -1) return res.status(404).json({ error: 'Task not found' });
-    p.tasks[ti] = { ...p.tasks[ti], ...req.body, id: req.params.taskId };
-    p.progress = calcProgress(p.tasks); p.updatedAt = new Date().toISOString();
-    writeJSON('projects.json', projects); res.json(p.tasks[ti]);
-  }
+  const { data, error } = await supabase.from('project_tasks').update(req.body).eq('id', req.params.taskId).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  const { data: allTasks } = await supabase.from('project_tasks').select('status').eq('project_id', req.params.id);
+  await supabase.from('projects').update({ progress: calcProgress(allTasks || []), updated_at: new Date().toISOString() }).eq('id', req.params.id);
+  res.json(data);
 });
 app.delete('/api/projects/:id/tasks/:taskId', requireAuth, async (req, res) => {
-  try {
-    const { error } = await supabase.from('project_tasks').delete().eq('id', req.params.taskId);
-    if (error) throw error;
-    res.json({ ok: true });
-  } catch(e) {
-    const projects = readJSON('projects.json');
-    const p = projects.find(x => x.id === req.params.id);
-    if (!p) return res.status(404).json({ error: 'Not found' });
-    p.tasks = p.tasks.filter(t => t.id !== req.params.taskId);
-    p.progress = calcProgress(p.tasks); p.updatedAt = new Date().toISOString();
-    writeJSON('projects.json', projects); res.json({ ok: true });
-  }
+  const { error } = await supabase.from('project_tasks').delete().eq('id', req.params.taskId);
+  if (error) return res.status(500).json({ error: error.message });
+  const { data: allTasks } = await supabase.from('project_tasks').select('status').eq('project_id', req.params.id);
+  await supabase.from('projects').update({ progress: calcProgress(allTasks || []), updated_at: new Date().toISOString() }).eq('id', req.params.id);
+  res.json({ ok: true });
 });
 
 // ─── API: Notes ───────────────────────────────────────────────────────────────
+
 app.get('/api/notes', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('notes').select('*').order('updated_at', { ascending: false });
-    if (error) throw error;
-    res.json(data || []);
-  } catch(e) { res.json(readJSON('notes.json')); }
+  const { data, error } = await supabase.from('notes').select('*').order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json((data || []).map(toFrontendNote));
 });
 app.post('/api/notes', requireAuth, async (req, res) => {
-  try {
-    const n = { id: uid(), tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...req.body };
-    const { data, error } = await supabase.from('notes').insert([n]).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const notes = readJSON('notes.json');
-    const n = { id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: [], ...req.body };
-    notes.unshift(n); writeJSON('notes.json', notes); res.json(n);
-  }
+  const n = { id: uid(), tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...req.body };
+  const { data, error } = await supabase.from('notes').insert([n]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendNote(data));
 });
 app.put('/api/notes/:id', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('notes').update({ ...req.body, updated_at: new Date().toISOString() }).eq('id', req.params.id).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const notes = readJSON('notes.json');
-    const i = notes.findIndex(x => x.id === req.params.id);
-    if (i === -1) return res.status(404).json({ error: 'Not found' });
-    notes[i] = { ...notes[i], ...req.body, id: req.params.id, updatedAt: new Date().toISOString() };
-    writeJSON('notes.json', notes); res.json(notes[i]);
-  }
+  const { data, error } = await supabase.from('notes').update({ ...req.body, updated_at: new Date().toISOString() }).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendNote(data));
 });
 app.delete('/api/notes/:id', requireAuth, async (req, res) => {
-  try {
-    const { error } = await supabase.from('notes').delete().eq('id', req.params.id);
-    if (error) throw error;
-    res.json({ ok: true });
-  } catch(e) {
-    writeJSON('notes.json', readJSON('notes.json').filter(x => x.id !== req.params.id)); res.json({ ok: true });
-  }
+  const { error } = await supabase.from('notes').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 // ─── API: Queue ───────────────────────────────────────────────────────────────
+
 app.get('/api/queue', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('queue').select('*').order('created_at', { ascending: true });
-    if (error) throw error;
-    res.json(data || []);
-  } catch(e) { res.json(readJSON('queue.json')); }
+  const { data, error } = await supabase.from('queue').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json((data || []).map(toFrontendQueueItem));
 });
 app.post('/api/queue', requireAuth, async (req, res) => {
-  try {
-    const item = { id: uid(), status: 'queued', priority: 'medium', created_at: new Date().toISOString(), ...req.body };
-    const { data, error } = await supabase.from('queue').insert([item]).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const queue = readJSON('queue.json');
-    const item = { id: uid(), status: 'queued', priority: 'medium', createdAt: new Date().toISOString(), ...req.body };
-    queue.push(item); writeJSON('queue.json', queue); res.json(item);
-  }
+  const item = { id: uid(), status: 'queued', priority: 'medium', created_at: new Date().toISOString(), ...req.body };
+  const { data, error } = await supabase.from('queue').insert([item]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendQueueItem(data));
 });
 app.put('/api/queue/:id', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('queue').update(req.body).eq('id', req.params.id).select().single();
-    if (error) throw error;
-    res.json(data);
-  } catch(e) {
-    const queue = readJSON('queue.json');
-    const i = queue.findIndex(x => x.id === req.params.id);
-    if (i === -1) return res.status(404).json({ error: 'Not found' });
-    queue[i] = { ...queue[i], ...req.body, id: req.params.id };
-    writeJSON('queue.json', queue); res.json(queue[i]);
-  }
+  const { data, error } = await supabase.from('queue').update(req.body).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendQueueItem(data));
 });
 app.delete('/api/queue/:id', requireAuth, async (req, res) => {
-  try {
-    const { error } = await supabase.from('queue').delete().eq('id', req.params.id);
-    if (error) throw error;
-    res.json({ ok: true });
-  } catch(e) {
-    writeJSON('queue.json', readJSON('queue.json').filter(x => x.id !== req.params.id)); res.json({ ok: true });
-  }
+  const { error } = await supabase.from('queue').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
+// ─── API: Settings ────────────────────────────────────────────────────────────
+
+const DEFAULT_SETTINGS = {
+  theme: 'dark', ownerName: 'Shadow', ownerHandle: 'shadow9887', accentColor: '#58a6ff',
+  language: 'en', compactMode: false, autoRefresh: true, autoRefreshInterval: 30,
+  defaultPage: 'dashboard', dateFormat: 'relative', sidebarCollapsed: false, chatUploadEnabled: true
+};
 app.get('/api/settings', requireAuth, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('settings').select('*');
-    if (error) throw error;
-    const settings = {};
-    (data || []).forEach(row => { settings[row.key] = row.value; });
-    if (!Object.keys(settings).length) {
-      return res.json({ theme: 'dark', ownerName: 'Shadow', ownerHandle: 'shadow9887', accentColor: '#58a6ff', language: 'en', compactMode: false, autoRefresh: true, autoRefreshInterval: 30, defaultPage: 'dashboard', dateFormat: 'relative', sidebarCollapsed: false, chatUploadEnabled: true });
-    }
-    res.json(settings);
-  } catch(e) { res.json(readJSON('settings.json', {})); }
+  const { data, error } = await supabase.from('settings').select('*');
+  if (error) return res.json(DEFAULT_SETTINGS);
+  const s = {};
+  (data || []).forEach(row => { s[row.key] = row.value; });
+  res.json(Object.keys(s).length ? s : DEFAULT_SETTINGS);
 });
 app.put('/api/settings', requireAuth, async (req, res) => {
-  try {
-    const rows = Object.entries(req.body).map(([key, value]) => ({ key, value }));
-    const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' });
-    if (error) throw error;
-    res.json(req.body);
-  } catch(e) {
-    const s = { ...readJSON('settings.json', {}), ...req.body };
-    writeJSON('settings.json', s); res.json(s);
-  }
+  const rows = Object.entries(req.body).map(([key, value]) => ({ key, value }));
+  const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(req.body);
+});
+
+// ─── API: Stats ───────────────────────────────────────────────────────────────
+
+app.get('/api/stats', requireAuth, async (req, res) => {
+  const [{ data: projects }, { data: queueItems }, { data: notes }, { data: tasks }] = await Promise.all([
+    supabase.from('projects').select('status, project_tasks(status)'),
+    supabase.from('queue').select('status'),
+    supabase.from('notes').select('id'),
+    supabase.from('tasks').select('status'),
+  ]);
+  const allTasks = (projects || []).flatMap(p => p.project_tasks || []);
+  res.json({
+    totalProjects:  (projects || []).length,
+    activeProjects: (projects || []).filter(p => p.status === 'Active').length,
+    totalTasks:     allTasks.length,
+    doneTasks:      allTasks.filter(t => t.status === 'done').length,
+    queuedItems:    (queueItems || []).filter(q => q.status === 'queued').length,
+    pendingTasks:   (tasks || []).filter(t => t.status === 'queued').length,
+    totalNotes:     (notes || []).length,
+  });
+});
+
+// ─── API: Tasks (OpenClaw task queue) ─────────────────────────────────────────
+
+app.get('/api/tasks', requireAuth, async (req, res) => {
+  const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json((data || []).map(toFrontendTask));
+});
+app.post('/api/tasks', requireAuth, async (req, res) => {
+  const t = { id: uid(), status: 'queued', progress: 0, created_at: new Date().toISOString(), ...req.body };
+  const { data, error } = await supabase.from('tasks').insert([t]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendTask(data));
+});
+app.put('/api/tasks/:id', requireAuth, async (req, res) => {
+  const updates = { ...req.body };
+  if (updates.progressNote) { updates.progress_note = updates.progressNote; delete updates.progressNote; }
+  const { data, error } = await supabase.from('tasks').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(toFrontendTask(data));
+});
+app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
+  const { error } = await supabase.from('tasks').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ─── One-time migration: push orphan JSON projects → Supabase ─────────────────
+app.post('/api/migrate', requireAuth, async (req, res) => {
+  const local = readJSON('projects.json');
+  if (!local.length) return res.json({ migrated: 0, message: 'No local projects found' });
+  const { data: existing } = await supabase.from('projects').select('id');
+  const existingIds = new Set((existing || []).map(p => p.id));
+  const orphans = local.filter(p => !existingIds.has(p.id));
+  if (!orphans.length) return res.json({ migrated: 0, message: 'Already in sync' });
+  const rows = orphans.map(p => ({
+    id: p.id, name: p.name, engine: p.engine || 'Autre', status: p.status || 'Active',
+    description: p.description || '', tags: p.tags || [],
+    repo_url: p.repoUrl || '', progress: p.progress || 0,
+    created_at: p.createdAt || new Date().toISOString(),
+    updated_at: p.updatedAt || new Date().toISOString(),
+  }));
+  const { error } = await supabase.from('projects').insert(rows);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ migrated: rows.length, names: rows.map(r => r.name) });
 });
 
 // ─── API: Uploads ─────────────────────────────────────────────────────────────
@@ -414,41 +344,7 @@ app.post('/api/chat/upload', chatUpload.single('file'), (req, res) => {
   res.json({ ok: true, name: req.file.originalname, size: req.file.size, content });
 });
 
-// ─── API: Stats ───────────────────────────────────────────────────────────────
-app.get('/api/stats', (req, res) => {
-  const projects = readJSON('projects.json');
-  const queue    = readJSON('queue.json');
-  const notes    = readJSON('notes.json');
-  const tasks    = readJSON('tasks.json');
-  const totalTasks = projects.reduce((a, p) => a + (p.tasks?.length || 0), 0);
-  const doneTasks  = projects.reduce((a, p) => a + (p.tasks?.filter(t => t.status === 'done').length || 0), 0);
-  res.json({
-    totalProjects: projects.length,
-    activeProjects: projects.filter(p => p.status === 'Active').length,
-    totalTasks, doneTasks,
-    queuedItems: queue.filter(q => q.status === 'queued').length,
-    pendingTasks: tasks.filter(t => t.status === 'queued').length,
-    totalNotes: notes.length,
-  });
-});
 
-// ─── API: Tasks ───────────────────────────────────────────────────────────────
-app.get('/api/tasks', (req, res) => res.json(readJSON('tasks.json')));
-app.post('/api/tasks', (req, res) => {
-  const tasks = readJSON('tasks.json');
-  const t = { id: uid(), status: 'queued', progress: 0, createdAt: new Date().toISOString(), ...req.body };
-  tasks.push(t); writeJSON('tasks.json', tasks); res.json(t);
-});
-app.put('/api/tasks/:id', (req, res) => {
-  const tasks = readJSON('tasks.json');
-  const i = tasks.findIndex(t => t.id === req.params.id);
-  if (i === -1) return res.status(404).json({ error: 'Not found' });
-  tasks[i] = { ...tasks[i], ...req.body, id: req.params.id };
-  writeJSON('tasks.json', tasks); res.json(tasks[i]);
-});
-app.delete('/api/tasks/:id', (req, res) => {
-  writeJSON('tasks.json', readJSON('tasks.json').filter(t => t.id !== req.params.id)); res.json({ ok: true });
-});
 
 // ─── API: Chat (proxy to OpenClaw gateway) ────────────────────────────────────
 app.post('/api/chat', requireAuth, (req, res) => {
@@ -663,13 +559,17 @@ function parseOpenclawStatus() {
 }
 
 // ─── Agent Status: shared collector ──────────────────────────────────────────
-function collectAgentStatus(gateway, gatewayMs) {
+async function collectAgentStatus(gateway, gatewayMs) {
   const clawStatus   = parseOpenclawStatus();
   const discord      = clawStatus.discord;
   const todayUsage   = getTodayUsage();
   const authProfiles = getAuthProfiles();
-  const settings     = readJSON('settings.json', {});
-  const dailyBudget  = settings.dailyTokenBudget || 500000;
+  // Read dailyTokenBudget from Supabase settings (fallback 500000)
+  let dailyBudget = 500000;
+  try {
+    const { data: budgetRows } = await supabase.from('settings').select('value').eq('key', 'dailyTokenBudget').single();
+    if (budgetRows?.value) dailyBudget = Number(budgetRows.value) || 500000;
+  } catch {}
   const costIn  = (_tokenStats.tokensIn  / 1_000_000) * 3;
   const costOut = (_tokenStats.tokensOut / 1_000_000) * 15;
   const estCost = (_tokenStats.calls > 0) ? (costIn + costOut).toFixed(4) : null;
@@ -740,10 +640,10 @@ function probeAndCollect() {
       const gw = r.statusCode < 500;
       const ms = Date.now() - t0;
       r.resume();
-      if (!done) { done = true; resolve(collectAgentStatus(gw, ms)); }
+      if (!done) { done = true; collectAgentStatus(gw, ms).then(resolve); }
     });
-    probe.on('error', () => { if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
-    probe.setTimeout(2000, () => { probe.destroy(); if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
+    probe.on('error', () => { if (!done) { done = true; collectAgentStatus(false, null).then(resolve); } });
+    probe.setTimeout(2000, () => { probe.destroy(); if (!done) { done = true; collectAgentStatus(false, null).then(resolve); } });
     probe.end();
   });
 }
@@ -789,18 +689,43 @@ app.post('/api/openclaw/control', requireAuth, (req, res) => {
                : action === 'stop'  ? 'gateway stop'
                :                      'gateway status';
 
-  // Use full path to openclaw PowerShell script
-  const cmd = `& "${NODE_EXE}" "C:\\Users\\mohan\\AppData\\Roaming\\npm\\node_modules\\openclaw\\openclaw.mjs" ${subCmd} 2>&1`;
+  // Try to find openclaw in common locations
+  const openclawPaths = [
+    path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaw', 'openclaw.mjs'),
+    path.join(os.homedir(), '.npm-global', 'lib', 'node_modules', 'openclaw', 'openclaw.mjs'),
+    'openclaw', // if it's in PATH as a global command
+  ];
+  const openclawMjs = openclawPaths.find(p => p === 'openclaw' || fs.existsSync(p)) || openclawPaths[0];
+  const isFullPath = openclawMjs !== 'openclaw';
+  const cmd = isFullPath
+    ? `& "${NODE_EXE}" "${openclawMjs}" ${subCmd} 2>&1`
+    : `openclaw ${subCmd} 2>&1`;
 
-  exec(cmd, { shell: 'powershell.exe', timeout: 12000 }, (err, stdout, stderr) => {
-    const output = ((stdout || '') + (stderr || '')).trim();
-    res.json({
-      ok: !err || action === 'stop',
-      action,
-      output: output || (err ? err.message : 'Done'),
-      error: err?.message
+  let responded = false;
+  const safeRespond = (payload) => {
+    if (!responded && !res.headersSent) { responded = true; res.json(payload); }
+  };
+
+  // Safety timeout — always respond, even if exec hangs
+  const safetyTimer = setTimeout(() => {
+    safeRespond({ ok: false, action, output: 'Timeout — no response from OpenClaw after 15s. Is it installed?' });
+  }, 15000);
+
+  try {
+    exec(cmd, { shell: 'powershell.exe', timeout: 13000 }, (err, stdout, stderr) => {
+      clearTimeout(safetyTimer);
+      const output = ((stdout || '') + (stderr || '')).trim();
+      safeRespond({
+        ok: !err || action === 'stop',
+        action,
+        output: output || (err ? err.message : 'Done'),
+        error: err?.message || null
+      });
     });
-  });
+  } catch(spawnErr) {
+    clearTimeout(safetyTimer);
+    safeRespond({ ok: false, action, output: 'Failed to spawn process: ' + spawnErr.message, error: spawnErr.message });
+  }
 });
 
 // ─── API: Logs ────────────────────────────────────────────────────────────────
@@ -813,6 +738,56 @@ app.get('/api/logs', requireAuth, (req, res) => {
     const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-60);
     res.json({ lines });
   } catch(e) { res.json({ lines: [`Error: ${e.message}`] }); }
+});
+
+// ─── API: Local folder scan ───────────────────────────────────────────────────
+app.post('/api/local/scan', requireAuth, (req, res) => {
+  const { path: scanPath } = req.body;
+  if (!scanPath) return res.status(400).json({ error: 'path is required' });
+  try {
+    if (!fs.existsSync(scanPath)) return res.status(404).json({ error: `Path not found: ${scanPath}` });
+    const entries = fs.readdirSync(scanPath, { withFileTypes: true });
+
+    const EXT_LANG = {
+      '.cpp':'.cpp', '.cc':'.cpp', '.cxx':'.cpp', '.h':'.cpp', '.hpp':'.cpp',
+      '.cs':'C#', '.js':'JavaScript', '.ts':'TypeScript', '.py':'Python',
+      '.java':'Java', '.go':'Go', '.rs':'Rust', '.uproject':'Unreal Engine 5',
+      '.unity':'Unity', '.sln':'C#', '.lua':'Lua', '.c':'C',
+    };
+
+    const folders = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith('.') && !['node_modules','__pycache__','.git'].includes(e.name))
+      .map(e => {
+        const folderPath = path.join(scanPath, e.name);
+        let lastModified = null;
+        let detectedLang = null;
+        const langCounts = {};
+        try {
+          const stat = fs.statSync(folderPath);
+          lastModified = stat.mtime.toISOString();
+          // Scan one level deep for language detection
+          const subEntries = fs.readdirSync(folderPath, { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (!sub.isFile()) continue;
+            const ext = path.extname(sub.name).toLowerCase();
+            const lang = EXT_LANG[ext];
+            if (lang) langCounts[lang] = (langCounts[lang] || 0) + 1;
+            // Check subdirs for .uproject / unity files
+            if (['.uproject', '.unity', '.sln'].includes(ext)) {
+              detectedLang = EXT_LANG[ext];
+            }
+          }
+          if (!detectedLang && Object.keys(langCounts).length) {
+            detectedLang = Object.entries(langCounts).sort((a,b) => b[1]-a[1])[0][0];
+          }
+        } catch {}
+        return { name: e.name, path: folderPath, lastModified, detectedLang };
+      });
+
+    res.json({ folders });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

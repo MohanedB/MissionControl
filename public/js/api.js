@@ -13,7 +13,8 @@ function logout() {
 
 const API = {
   async get(path) {
-    const r = await fetch(path, { headers: authHeaders() });
+    const url = path.includes('?') ? `${path}&_t=${Date.now()}` : `${path}?_t=${Date.now()}`;
+    const r = await fetch(url, { headers: authHeaders({ 'Cache-Control': 'no-cache' }) });
     if (r.status === 401) { logout(); return; }
     if (!r.ok) throw new Error(await r.text());
     return r.json();

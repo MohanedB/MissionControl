@@ -265,6 +265,7 @@ const App = {
       content.innerHTML = html;
       if (page === 'uploads') loadUploadsList();
       if (page === 'projects') rebindProjects();
+      if (page === 'settings') afterRenderSettings();
       if (page === 'agent') { startAgentPolling(); loadLLMInfo(); }
       if (page === 'chat') setTimeout(() => document.getElementById('chatInput')?.focus(), 100);
     } catch(e) {
@@ -286,14 +287,17 @@ API.settings.get().then(s => {
   if (s.theme) document.documentElement.setAttribute('data-theme', s.theme);
   if (s.accentColor) document.documentElement.style.setProperty('--accent', s.accentColor);
   if (s.compactMode) document.body.classList.add('compact');
-  if (s.ownerName) {
-    const subtitle = document.getElementById('pageSubtitle');
-    if (subtitle) subtitle.textContent = `Welcome back, ${s.ownerName}`;
-  }
-  // Init i18n
+
+  // Init i18n FIRST before using t()
   if (typeof initLang === 'function') initLang(s);
   if (typeof _dateFormat !== 'undefined') window._dateFormat = s.dateFormat || 'relative';
-  // Boot to default page
+
+  if (s.ownerName) {
+    const subtitle = document.getElementById('pageSubtitle');
+    const welcome = _lang === 'fr' ? `Bon retour, ${s.ownerName}` : `Welcome back, ${s.ownerName}`;
+    if (subtitle) subtitle.textContent = welcome;
+  }
+
   Router.go(s.defaultPage || 'dashboard');
 }).catch(() => {
   Router.go('dashboard');
