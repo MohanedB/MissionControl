@@ -75,6 +75,22 @@ const chatUpload = multer({ dest: CHAT_UPLOADS_DIR, limits: { fileSize: 5 * 1024
 // ─── Token stats (accumulated from chat calls) ────────────────────────────────
 let _tokenStats = { tokensIn: 0, tokensOut: 0, cacheTokens: 0, calls: 0, startedAt: Date.now() };
 
+// ─── Settings cache (synced from Supabase) ───────────────────────────────────
+let _settingsCache = {};
+async function refreshSettingsCache() {
+  try {
+    const { data } = await supabase.from('settings').select('*');
+    if (data && data.length) {
+      const s = {};
+      data.forEach(row => { s[row.key] = row.value; });
+      _settingsCache = s;
+    }
+  } catch {}
+}
+// Refresh on startup + every 60s
+refreshSettingsCache();
+setInterval(refreshSettingsCache, 60_000);
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function readJSON(file, fallback = []) {
@@ -247,6 +263,7 @@ app.put('/api/settings', requireAuth, async (req, res) => {
   const rows = Object.entries(req.body).map(([key, value]) => ({ key, value }));
   const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' });
   if (error) return res.status(500).json({ error: error.message });
+  _settingsCache = { ..._settingsCache, ...req.body }; // keep cache hot immediately
   res.json(req.body);
 });
 
@@ -337,14 +354,11 @@ app.post('/api/chat/upload', chatUpload.single('file'), (req, res) => {
   try {
     const buf = fs.readFileSync(req.file.path);
     content = buf.toString('utf8');
-    // If it looks binary, truncate or note
     if (content.includes('\0')) content = '[Binary file — cannot display as text]';
     else if (content.length > 20000) content = content.slice(0, 20000) + '\n\n[...truncated at 20k chars]';
   } catch { content = '[Could not read file]'; }
   res.json({ ok: true, name: req.file.originalname, size: req.file.size, content });
 });
-
-
 
 // ─── API: Chat (proxy to OpenClaw gateway) ────────────────────────────────────
 app.post('/api/chat', requireAuth, (req, res) => {
@@ -370,7 +384,6 @@ app.post('/api/chat', requireAuth, (req, res) => {
     proxyRes.on('data', chunk => { rawBody += chunk; res.write(chunk); });
     proxyRes.on('end', () => {
       res.end();
-      // Parse usage stats from response
       try {
         const parsed = JSON.parse(rawBody);
         if (parsed.usage) {
@@ -426,7 +439,6 @@ function getAuthProfiles() {
       };
     }
 
-    // Active = most recently used profile not on cooldown
     let activeProfile = null, latestUse = 0;
     for (const [name, p] of Object.entries(result)) {
       if (p.lastUsed && p.lastUsed > latestUse && !p.onCooldown) {
@@ -435,7 +447,6 @@ function getAuthProfiles() {
       }
     }
 
-    // Ensure all configured providers show up (even if no auth-profiles entry yet)
     try {
       const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
       if (fs.existsSync(cfgPath)) {
@@ -472,7 +483,7 @@ function getTodayUsage() {
     const sessionsDir = path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions');
     if (!fs.existsSync(sessionsDir)) return null;
 
-    const todayPrefix = new Date().toISOString().slice(0, 10); // "2026-03-11"
+    const todayPrefix = new Date().toISOString().slice(0, 10);
     let inputFresh = 0, outputFresh = 0, cacheRead = 0, cacheWrite = 0, totalCost = 0, calls = 0;
 
     const jsonlFiles = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.jsonl'));
@@ -511,7 +522,7 @@ const SESSIONS_FILE = path.join(os.homedir(), '.openclaw', 'agents', 'main', 'se
 
 function parseOpenclawStatus() {
   try {
-    if (!fs.existsSync(SESSIONS_FILE)) return { sessions: [], discord: null, rateLimitAt: null, resetInSeconds: null };
+    if (!fs.existsSync(SESSIONS_FILE)) return { sessions: [], discord: null, rateLimitAt: null, resetInSeconds: null, lastSucceededModel: null };
 
     const raw = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'));
     const now = Date.now();
@@ -527,9 +538,9 @@ function parseOpenclawStatus() {
       const ageLabel  = ageMins < 1 ? 'just now' : ageMins < 60 ? ageMins + 'm ago' : Math.round(ageMins/60) + 'h ago';
 
       let channel = 'other';
-      if (key.includes('discord'))              channel = 'discord';
+      if (key.includes('discord'))                  channel = 'discord';
       else if (key.includes('openai-user:mission')) channel = 'mission-control';
-      else if (key.includes('openai'))          channel = 'api';
+      else if (key.includes('openai'))              channel = 'api';
 
       return { key, channel, model: s.model, used, total, pct, cacheRate, ageLabel,
                inputTokens: s.inputTokens || 0, outputTokens: s.outputTokens || 0,
@@ -552,29 +563,40 @@ function parseOpenclawStatus() {
       }
     } catch {}
 
-    return { sessions, discord, rateLimitAt, resetInSeconds };
+    // Parse last succeeded candidate from logs
+    let lastSucceededModel = null;
+    try {
+      const logFile = path.join(os.tmpdir(), 'openclaw', `openclaw-${new Date().toISOString().slice(0,10)}.log`);
+      if (fs.existsSync(logFile)) {
+        const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).reverse();
+        for (const line of lines) {
+          if (line.includes('candidate_succeeded')) {
+            const m = line.match(/"candidateModel":"([^"]+)"/);
+            const p = line.match(/"candidateProvider":"([^"]+)"/);
+            if (m && p) { lastSucceededModel = `${p[1]}/${m[1]}`; break; }
+          }
+        }
+      }
+    } catch {}
+
+    return { sessions, discord, rateLimitAt, resetInSeconds, lastSucceededModel };
   } catch(e) {
-    return { sessions: [], discord: null, rateLimitAt: null, resetInSeconds: null, error: e.message };
+    return { sessions: [], discord: null, rateLimitAt: null, resetInSeconds: null, lastSucceededModel: null, error: e.message };
   }
 }
 
 // ─── Agent Status: shared collector ──────────────────────────────────────────
-async function collectAgentStatus(gateway, gatewayMs) {
+function collectAgentStatus(gateway, gatewayMs) {
   const clawStatus   = parseOpenclawStatus();
   const discord      = clawStatus.discord;
   const todayUsage   = getTodayUsage();
   const authProfiles = getAuthProfiles();
-  // Read dailyTokenBudget from Supabase settings (fallback 500000)
-  let dailyBudget = 500000;
-  try {
-    const { data: budgetRows } = await supabase.from('settings').select('value').eq('key', 'dailyTokenBudget').single();
-    if (budgetRows?.value) dailyBudget = Number(budgetRows.value) || 500000;
-  } catch {}
+  const dailyBudget  = _settingsCache.dailyTokenBudget || 500000; // ← reads from Supabase cache
   const costIn  = (_tokenStats.tokensIn  / 1_000_000) * 3;
   const costOut = (_tokenStats.tokensOut / 1_000_000) * 15;
   const estCost = (_tokenStats.calls > 0) ? (costIn + costOut).toFixed(4) : null;
   const uptimeMins = Math.round((Date.now() - _tokenStats.startedAt) / 60000);
-  // Resolve the primary model + fallbacks from OpenClaw config (dynamic)
+
   let primaryModel = 'unknown';
   let fallbackModels = [];
   let modelConfig = {};
@@ -582,13 +604,12 @@ async function collectAgentStatus(gateway, gatewayMs) {
     const cfgPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
     if (fs.existsSync(cfgPath)) {
       const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-      primaryModel = cfg?.agents?.defaults?.model?.primary || primaryModel;
+      primaryModel   = cfg?.agents?.defaults?.model?.primary   || primaryModel;
       fallbackModels = cfg?.agents?.defaults?.model?.fallbacks || [];
-      // Build per-provider model info
       const allModels = [primaryModel, ...fallbackModels];
       const TOKEN_LIMITS = { anthropic: 80000, google: 1000000, ollama: null };
       allModels.forEach((m, i) => {
-        const provider = m.split('/')[0];
+        const provider  = m.split('/')[0];
         const modelName = m.split('/').slice(1).join('/');
         modelConfig[provider] = {
           model: modelName || m,
@@ -599,9 +620,11 @@ async function collectAgentStatus(gateway, gatewayMs) {
       });
     }
   } catch(e) { /* ignore */ }
+
   return {
     gateway, gatewayMs,
     model: primaryModel,
+    lastSucceededModel: clawStatus.lastSucceededModel || null,
     fallbacks: fallbackModels,
     modelConfig,
     discord: discord ? {
@@ -640,10 +663,10 @@ function probeAndCollect() {
       const gw = r.statusCode < 500;
       const ms = Date.now() - t0;
       r.resume();
-      if (!done) { done = true; collectAgentStatus(gw, ms).then(resolve); }
+      if (!done) { done = true; resolve(collectAgentStatus(gw, ms)); }
     });
-    probe.on('error', () => { if (!done) { done = true; collectAgentStatus(false, null).then(resolve); } });
-    probe.setTimeout(2000, () => { probe.destroy(); if (!done) { done = true; collectAgentStatus(false, null).then(resolve); } });
+    probe.on('error', () => { if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
+    probe.setTimeout(2000, () => { probe.destroy(); if (!done) { done = true; resolve(collectAgentStatus(false, null)); } });
     probe.end();
   });
 }
@@ -658,20 +681,18 @@ async function pushStatusToSupabase() {
 
 // ─── API: Agent Status ────────────────────────────────────────────────────────
 app.get('/api/agent-status', requireAuth, async (req, res) => {
-  // On Vercel: read from Supabase (local server pushes here every 30s)
   if (IS_VERCEL) {
     try {
       const { data, error } = await supabase.from('agent_status').select('data, updated_at').eq('id', 'main').single();
       if (error || !data) return res.json({ gateway: false, _cloud: true, _error: 'No status in Supabase yet — is local server running?' });
       const ageMs = Date.now() - new Date(data.updated_at).getTime();
-      const stale = ageMs > 120_000; // >2 min = stale
+      const stale = ageMs > 120_000;
       return res.json({ ...data.data, _cloud: true, _stale: stale, _ageSeconds: Math.round(ageMs / 1000) });
     } catch (e) {
       return res.json({ gateway: false, _cloud: true, _error: e.message });
     }
   }
 
-  // Local: probe gateway and return live data
   const data = await probeAndCollect();
   res.json(data);
 });
@@ -689,11 +710,10 @@ app.post('/api/openclaw/control', requireAuth, (req, res) => {
                : action === 'stop'  ? 'gateway stop'
                :                      'gateway status';
 
-  // Try to find openclaw in common locations
   const openclawPaths = [
     path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'openclaw', 'openclaw.mjs'),
     path.join(os.homedir(), '.npm-global', 'lib', 'node_modules', 'openclaw', 'openclaw.mjs'),
-    'openclaw', // if it's in PATH as a global command
+    'openclaw',
   ];
   const openclawMjs = openclawPaths.find(p => p === 'openclaw' || fs.existsSync(p)) || openclawPaths[0];
   const isFullPath = openclawMjs !== 'openclaw';
@@ -706,7 +726,6 @@ app.post('/api/openclaw/control', requireAuth, (req, res) => {
     if (!responded && !res.headersSent) { responded = true; res.json(payload); }
   };
 
-  // Safety timeout — always respond, even if exec hangs
   const safetyTimer = setTimeout(() => {
     safeRespond({ ok: false, action, output: 'Timeout — no response from OpenClaw after 15s. Is it installed?' });
   }, 15000);
@@ -765,14 +784,12 @@ app.post('/api/local/scan', requireAuth, (req, res) => {
         try {
           const stat = fs.statSync(folderPath);
           lastModified = stat.mtime.toISOString();
-          // Scan one level deep for language detection
           const subEntries = fs.readdirSync(folderPath, { withFileTypes: true });
           for (const sub of subEntries) {
             if (!sub.isFile()) continue;
             const ext = path.extname(sub.name).toLowerCase();
             const lang = EXT_LANG[ext];
             if (lang) langCounts[lang] = (langCounts[lang] || 0) + 1;
-            // Check subdirs for .uproject / unity files
             if (['.uproject', '.unity', '.sln'].includes(ext)) {
               detectedLang = EXT_LANG[ext];
             }
@@ -802,7 +819,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`║  Network: http://${localIP}:${PORT}         ║`);
   console.log('╚══════════════════════════════════════════════╝\n');
 
-  // Push agent status to Supabase every 30s so Vercel can read it
   pushStatusToSupabase();
   setInterval(pushStatusToSupabase, 30_000);
   console.log('📡 Agent status sync to Supabase started (every 30s)');

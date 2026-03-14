@@ -129,37 +129,24 @@ async function loadAgentStatus() {
     // GATEWAY
     const dot = document.getElementById('gwDot');
     const lbl = document.getElementById('gwLabel');
-    if (dot) { 
-      dot.className = 'status-dot';
-      dot.classList.add(data.gateway ? 'online' : 'offline'); 
-    }
+    if (dot) { dot.className = 'status-dot'; dot.classList.add(data.gateway ? 'online' : 'offline'); }
     if (lbl) {
       lbl.textContent = data.gateway ? 'SYSTEM ONLINE' : 'SYSTEM OFFLINE';
       lbl.style.color = data.gateway ? 'var(--success)' : 'var(--danger)';
     }
 
-    // DÉTERMINER LE MODÈLE ACTIF (réel)
-let activeModel = data.model || _currentPrimary;
-if (!data.model) {
-  if (data.sessions && data.sessions.length > 0) {
-    activeModel = data.sessions[0].model || activeModel;
-  } else if (data.apis && data.apis.activeProfile) {
-    const ap = data.apis.profiles[data.apis.activeProfile];
-    activeModel = ap && ap.model ? ap.model : data.apis.activeProfile;
-  }
-}
+    // MODÈLE ACTIF — lit le vrai modèle depuis les logs, pas les sessions
+    const activeModel = data.lastSucceededModel || data.model || _currentPrimary;
+    const isFallback  = data.model && data.lastSucceededModel && data.lastSucceededModel !== data.model;
 
     // MAJ CARTE HAUTE
     const activeModelEl = document.getElementById('activeModelDisplay');
     if (activeModelEl) {
       activeModelEl.textContent = activeModel;
-      if (_currentPrimary !== 'Inconnu' && activeModel !== _currentPrimary) {
-        activeModelEl.style.color = 'var(--warning)';
-        activeModelEl.title = "Fallback actif ! Le système n'utilise pas le Primary.";
-      } else {
-        activeModelEl.style.color = 'var(--accent)';
-        activeModelEl.title = "Primary en fonctionnement normal.";
-      }
+      activeModelEl.style.color = isFallback ? 'var(--warning)' : 'var(--accent)';
+      activeModelEl.title = isFallback
+        ? `Fallback actif ! Configuré: ${data.model}`
+        : 'Primary en fonctionnement normal.';
     }
 
     // MAJ SIDEBAR
@@ -168,30 +155,30 @@ if (!data.model) {
     if (sidebarLbl) sidebarLbl.textContent = `LLM: ${activeModel}`;
     if (sidebarDot) {
       sidebarDot.style.display = 'inline-block';
-      sidebarDot.style.background = (_currentPrimary !== 'Inconnu' && activeModel !== _currentPrimary) ? 'var(--warning)' : 'var(--success)';
+      sidebarDot.style.background = isFallback ? 'var(--warning)' : 'var(--success)';
     }
 
     // TOKENS
     const tokenDisp = document.getElementById('tokenDisplay');
     if (tokenDisp) {
-      if (data.today) {
-         tokenDisp.innerHTML = `${fmtNum(data.today.freshTokens)} <span style="font-size:0.85rem; color:var(--text-muted);">/ ${fmtNum(data.today.budget)}</span>`;
-      } else {
-         tokenDisp.innerHTML = `0 <span style="font-size:0.85rem; color:var(--text-muted);">/ 0</span>`;
-      }
+      tokenDisp.innerHTML = data.today
+        ? `${fmtNum(data.today.freshTokens)} <span style="font-size:0.85rem; color:var(--text-muted);">/ ${fmtNum(data.today.budget)}</span>`
+        : `0 <span style="font-size:0.85rem; color:var(--text-muted);">/ 0</span>`;
     }
 
     // QUOTA
     const todayEl = document.getElementById('todayBlock');
     if (todayEl && data.today) {
       const td = data.today;
-      let barColor = td.pct > 90 ? 'var(--danger)' : (td.pct > 75 ? 'var(--warning)' : 'var(--accent)');
+      const barColor = td.pct > 90 ? 'var(--danger)' : (td.pct > 75 ? 'var(--warning)' : 'var(--accent)');
       todayEl.innerHTML = `
         <div style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:.85rem;margin-bottom:6px">
             <span>Utilisation Journalière</span><span style="color:${barColor}">${td.pct}%</span>
           </div>
-          <div class="progress-wrap" style="background:var(--bg-modifier-hover); border-radius:4px;"><div class="progress-bar" style="width:${td.pct}%;height:8px; background:${barColor}; border-radius:4px;"></div></div>
+          <div class="progress-wrap" style="background:var(--bg-modifier-hover); border-radius:4px;">
+            <div class="progress-bar" style="width:${td.pct}%;height:8px; background:${barColor}; border-radius:4px;"></div>
+          </div>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:.75rem; color:var(--text-secondary); padding-top:8px; border-top:1px solid var(--border-muted);">
           <span>Tokens consommés :</span>
