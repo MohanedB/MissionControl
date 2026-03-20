@@ -186,7 +186,15 @@ async function loadAgentStatus() {
         </div>
       `;
     }
-  } catch(e) { console.error("Erreur Agent Status:", e); }
+ } catch(e) {
+  console.error("Erreur Agent Status:", e);
+  const lbl = document.getElementById('gwLabel');
+  const dot = document.getElementById('gwDot');
+  if (lbl) { lbl.textContent = 'ERREUR API'; lbl.style.color = 'var(--danger)'; }
+  if (dot) { dot.className = 'status-dot offline'; }
+  const activeModelEl = document.getElementById('activeModelDisplay');
+  if (activeModelEl) { activeModelEl.textContent = e.message; activeModelEl.style.color = 'var(--danger)'; }
+}
 }
 
 async function loadLLMInfo() {

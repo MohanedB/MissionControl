@@ -31,12 +31,88 @@ async function loadUploadsList() {
   if (!el) return;
   try {
     const files = await API.get('/api/uploads');
-    el.innerHTML = files.length === 0
-      ? `<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><h3>No files uploaded</h3><p>Upload PDFs for OpenClaw to read and learn from</p></div>`
-      : `<div class="table-wrap"><table><thead><tr><th>Filename</th><th>Size</th></tr></thead><tbody>${files.map(f => `<tr><td style="font-weight:500">${f.name}</td><td style="color:var(--text-muted)">${formatBytes(f.size)}</td></tr>`).join('')}</tbody></table></div>`;
-  } catch { el.innerHTML = '<p style="color:var(--danger)">Failed to load files</p>'; }
+    if (!files.length) {
+      el.innerHTML = `<div class="empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <h3>No files uploaded</h3>
+        <p>Upload PDFs for OpenClaw to read and learn from</p>
+      </div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>Added</th>
+            <th style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            ${files.map(f => `
+              <tr>
+                <td style="font-weight:500">${f.name}</td>
+                <td style="color:var(--text-muted)">${formatBytes(f.size)}</td>
+                <td style="color:var(--text-muted);font-size:.8rem">${formatDate(f.createdAt)}</td>
+                <td style="text-align:right;display:flex;gap:8px;justify-content:flex-end">
+                  <a href="/api/uploads/${encodeURIComponent(f.name)}" 
+                     download="${f.name}"
+                     onclick="addAuthToDownload(event, '${f.name}')"
+                     style="background:var(--bg-hover);border:1px solid var(--border);color:var(--text-secondary);padding:4px 10px;border-radius:5px;font-size:.78rem;cursor:pointer;text-decoration:none">
+                    ↓ Download
+                  </a>
+                  <button onclick="deleteUpload('${f.name}')"
+                    style="background:transparent;border:1px solid var(--danger);color:var(--danger);padding:4px 10px;border-radius:5px;font-size:.78rem;cursor:pointer">
+                    🗑 Delete
+                  </button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch { 
+    el.innerHTML = '<p style="color:var(--danger)">Failed to load files</p>'; 
+  }
 }
 
+async function deleteUpload(filename) {
+  if (!confirm(`Delete "${filename}" ?`)) return;
+  try {
+    await fetch(`/api/uploads/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mc_token') || '') }
+    });
+    toast(`Deleted: ${filename}`, 'success');
+    loadUploadsList();
+  } catch(e) {
+    toast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+async function addAuthToDownload(e, filename) {
+  e.preventDefault();
+  try {
+    const res = await fetch(`/api/uploads/${encodeURIComponent(filename)}`, {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mc_token') || '') }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    toast('Download failed: ' + e.message, 'error');
+  }
+}
+
+function formatDate(iso) {
+  if (!iso) return '--';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 async function handleFileSelect(event) {
   const files = Array.from(event.target.files);
   await uploadFiles(files);
@@ -54,12 +130,18 @@ async function uploadFiles(files) {
     const form = new FormData();
     form.append('file', file);
     try {
-      await fetch('/api/upload', { method: 'POST', body: form });
+      const res = await fetch('/api/upload', { 
+        method: 'POST', 
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mc_token') || '') },
+        body: form 
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       toast(`Uploaded: ${file.name}`, 'success');
-    } catch {
-      toast(`Failed: ${file.name}`, 'error');
+    } catch(e) {
+      toast(`Failed: ${file.name} — ${e.message}`, 'error');
     }
   }
+  await new Promise(r => setTimeout(r, 300));
   loadUploadsList();
 }
 

@@ -69,8 +69,23 @@ app.get('/api/config', (req, res) => {
   res.json({ localApiUrl: (process.env.LOCAL_API_URL || '').trim() });
 });
 
-const upload     = multer({ dest: UPLOADS_DIR });
-const chatUpload = multer({ dest: CHAT_UPLOADS_DIR, limits: { fileSize: 5 * 1024 * 1024 } });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    // sanitize le nom original, garde l'extension
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    // évite les collisions
+    const unique = Date.now() + '_' + safe;
+    cb(null, unique);
+  }
+});
+const upload = multer({ storage });
+
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CHAT_UPLOADS_DIR),
+  filename: (req, file, cb) => cb(null, Date.now() + '_' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_'))
+});
+const chatUpload = multer({ storage: chatStorage });
 
 // ─── Token stats (accumulated from chat calls) ────────────────────────────────
 let _tokenStats = { tokensIn: 0, tokensOut: 0, cacheTokens: 0, calls: 0, startedAt: Date.now() };
@@ -79,13 +94,17 @@ let _tokenStats = { tokensIn: 0, tokensOut: 0, cacheTokens: 0, calls: 0, started
 let _settingsCache = {};
 async function refreshSettingsCache() {
   try {
-    const { data } = await supabase.from('settings').select('*');
+    const { data, error } = await supabase.from('settings').select('*');
+    if (error) { console.error('[settings cache] Supabase error:', error.message); return; }
     if (data && data.length) {
       const s = {};
       data.forEach(row => { s[row.key] = row.value; });
       _settingsCache = s;
+      console.log('[settings cache] loaded, dailyTokenBudget =', _settingsCache.dailyTokenBudget);
+    } else {
+      console.warn('[settings cache] no rows returned from Supabase');
     }
-  } catch {}
+  } catch(e) { console.error('[settings cache] exception:', e.message); }
 }
 // Refresh on startup + every 60s
 refreshSettingsCache();
@@ -339,12 +358,31 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({ ok: true, filename: req.file.originalname, size: req.file.size, path: req.file.path });
 });
-app.get('/api/uploads', (req, res) => {
+app.get('/api/uploads', requireAuth, (req, res) => {
   if (!fs.existsSync(UPLOADS_DIR)) return res.json([]);
   const files = fs.readdirSync(UPLOADS_DIR)
     .filter(f => !fs.statSync(path.join(UPLOADS_DIR, f)).isDirectory())
-    .map(f => ({ name: f, size: fs.statSync(path.join(UPLOADS_DIR, f)).size }));
+    .map(f => {
+      const stat = fs.statSync(path.join(UPLOADS_DIR, f));
+      return { name: f, size: stat.size, createdAt: stat.birthtime.toISOString() };
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json(files);
+});
+
+app.delete('/api/uploads/:filename', requireAuth, (req, res) => {
+  const filename = path.basename(req.params.filename); 
+  const filepath = path.join(UPLOADS_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
+  fs.unlinkSync(filepath);
+  res.json({ ok: true });
+});
+
+app.get('/api/uploads/:filename', requireAuth, (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filepath = path.join(UPLOADS_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
+  res.download(filepath, filename);
 });
 
 // ─── API: Chat file upload ────────────────────────────────────────────────────
@@ -803,7 +841,7 @@ app.post('/api/local/scan', requireAuth, (req, res) => {
 
     res.json({ folders });
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).jsson({ error: e.message });
   }
 });
 
