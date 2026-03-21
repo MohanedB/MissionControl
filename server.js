@@ -441,6 +441,50 @@ app.post('/api/chat', requireAuth, (req, res) => {
   proxyReq.end();
 });
 
+// ─── API: Chat Streaming ──────────────────────────────────────────────────────
+app.post('/api/chat/stream', requireAuth, (req, res) => {
+  if (IS_VERCEL) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write(`data: ${JSON.stringify({ error: 'Not available in cloud mode' })}\n\n`);
+    return res.end();
+  }
+  const { messages } = req.body;
+  if (!messages?.length) return res.status(400).json({ error: 'No messages' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const payload = JSON.stringify({ model: 'openclaw:main', messages, stream: true, user: 'mission-control' });
+  const options = {
+    hostname: '127.0.0.1', port: 18789, path: '/v1/chat/completions', method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
+      'x-openclaw-agent-id': 'main'
+    }
+  };
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    proxyRes.on('data', chunk => {
+      res.write(chunk);
+    });
+    proxyRes.on('end', () => {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  proxyReq.on('error', (e) => {
+    res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+    res.end();
+  });
+  req.on('close', () => proxyReq.destroy());
+  proxyReq.write(payload);
+  proxyReq.end();
+});
+
 // ─── Read auth profiles + usage stats from OpenClaw ─────────────────────────
 const AUTH_PROFILES_FILE = path.join(os.homedir(), '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
 
