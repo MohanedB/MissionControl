@@ -667,6 +667,32 @@ function parseOpenclawStatus() {
   }
 }
 
+// ─── Parse last candidate_succeeded ──────────────────────────────────────────
+function getActualActiveModel() {
+  try {
+    const logFile = path.join(os.tmpdir(), 'openclaw', `openclaw-${new Date().toISOString().slice(0,10)}.log`);
+    if (!fs.existsSync(logFile)) return null;
+
+    const lines = fs.readFileSync(logFile, 'utf8').split('\n').reverse();
+
+    for (const line of lines) {
+      if (!line.includes('candidate_succeeded')) continue;
+      try {
+        const parsed = JSON.parse(line);
+        const entry = parsed['1'];
+        if (entry && entry.decision === 'candidate_succeeded' && entry.candidateProvider && entry.candidateModel) {
+          return `${entry.candidateProvider}/${entry.candidateModel}`;
+        }
+      } catch { continue; }
+    }
+    return null;
+  } catch(e) {
+    console.log('[DEBUG] error:', e.message);
+    return null;
+  }
+}
+
+
 // ─── Agent Status: shared collector ──────────────────────────────────────────
 function collectAgentStatus(gateway, gatewayMs) {
   const clawStatus   = parseOpenclawStatus();
@@ -701,9 +727,10 @@ function collectAgentStatus(gateway, gatewayMs) {
         };
       });
     }
-  } catch(e) { /* ignore */ }
+  } catch(e) {  }
 
   return {
+    activeModel: getActualActiveModel(),
     gateway, gatewayMs,
     model: primaryModel,
     lastSucceededModel: clawStatus.lastSucceededModel || null,
@@ -735,6 +762,8 @@ function collectAgentStatus(gateway, gatewayMs) {
     updatedAt: new Date().toISOString()
   };
 }
+
+
 
 // Probe gateway, collect status, return as promise
 function probeAndCollect() {

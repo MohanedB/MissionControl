@@ -136,8 +136,11 @@ async function loadAgentStatus() {
     }
 
     // MODÈLE ACTIF — lit le vrai modèle depuis les logs, pas les sessions
-    const activeModel = data.lastSucceededModel || data.model || _currentPrimary;
+    
+    const activeModel = data.activeModel || _currentPrimary;
     const isFallback  = data.model && data.lastSucceededModel && data.lastSucceededModel !== data.model;
+    console.log('[DEBUG] activeModel from server:', data.activeModel); 
+
 
     // MAJ CARTE HAUTE
     const activeModelEl = document.getElementById('activeModelDisplay');
