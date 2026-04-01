@@ -51,8 +51,14 @@ CREATE TABLE IF NOT EXISTS queue (
   status TEXT DEFAULT 'queued',
   priority TEXT DEFAULT 'medium',
   project TEXT,
+  result TEXT,
+  completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration (run if table already exists):
+-- ALTER TABLE queue ADD COLUMN IF NOT EXISTS result TEXT;
+-- ALTER TABLE queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 
 -- Settings (key-value store)
 CREATE TABLE IF NOT EXISTS settings (

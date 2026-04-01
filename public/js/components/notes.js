@@ -88,11 +88,12 @@ async function saveNote(id) {
 }
 
 async function deleteNote(id) {
-  if (!confirm('Delete this note?')) return;
-  await API.notes.delete(id);
-  closeModal();
-  toast('Note deleted', 'success');
-  Router.go('notes');
+  confirmModal('Supprimer cette note ? Cette action est irréversible.', async () => {
+    await API.notes.delete(id);
+    closeModal();
+    toast('Note deleted', 'success');
+    Router.go('notes');
+  });
 }
 
 function showNewNoteModal() {

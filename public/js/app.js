@@ -10,7 +10,7 @@ updateClock();
 function toast(msg, type = 'info') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
   el.innerHTML = `<span>${icons[type] || ''}</span><span>${msg}</span>`;
   document.getElementById('toastContainer').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(100%)'; el.style.transition = '.3s'; setTimeout(() => el.remove(), 300); }, 3000);
@@ -21,21 +21,75 @@ function showModal(title, bodyHTML) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBody').innerHTML = bodyHTML;
   document.getElementById('modalOverlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
   setTimeout(() => document.querySelector('.modal-body input, .modal-body textarea')?.focus(), 100);
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+function confirmModal(message, onConfirm, danger = true) {
+  showModal('Confirmation', `
+    <p style="color:var(--text-secondary);line-height:1.6;margin-bottom:20px">${message}</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirmBtn">Confirmer</button>
+    </div>
+  `);
+  setTimeout(() => {
+    const btn = document.getElementById('confirmBtn');
+    if (btn) btn.onclick = () => { closeModal(); onConfirm(); };
+  }, 50);
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 function toggleSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  const wrapper = document.getElementById('mainWrapper');
-  sidebar.classList.toggle('collapsed');
-  wrapper.classList.toggle('collapsed');
+  const isMobile = window.innerWidth <= 900;
+  if (isMobile) {
+    toggleMobileSidebar();
+  } else {
+    const sidebar = document.getElementById('sidebar');
+    const wrapper = document.getElementById('mainWrapper');
+    sidebar.classList.toggle('collapsed');
+    wrapper.classList.toggle('collapsed');
+  }
+}
+
+function toggleMobileSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const isOpen   = sidebar.classList.contains('mobile-open');
+  if (isOpen) {
+    sidebar.classList.remove('mobile-open');
+    backdrop?.classList.remove('visible');
+    document.body.style.overflow = '';
+  } else {
+    sidebar.classList.add('mobile-open');
+    backdrop?.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeMobileSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  sidebar.classList.remove('mobile-open');
+  backdrop?.classList.remove('visible');
+  document.body.style.overflow = '';
+}
+
+// Mobile bottom nav
+function mobileNav(page) {
+  closeMobileSidebar();
+  Router.go(page);
+  // Update mobile nav active state
+  document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('mnav-' + page);
+  if (btn) btn.classList.add('active');
 }
 
 // ─── Refresh ──────────────────────────────────────────────────────────────────
@@ -240,10 +294,11 @@ async function saveProject(id) {
 }
 
 async function deleteProject(id) {
-  if (!confirm('Delete this project? This cannot be undone.')) return;
-  await API.projects.delete(id);
-  toast('Project deleted', 'success');
-  Router.go('projects');
+  confirmModal('Supprimer ce projet ? Cette action est irréversible.', async () => {
+    await API.projects.delete(id);
+    toast('Project deleted', 'success');
+    Router.go('projects');
+  });
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
@@ -261,6 +316,8 @@ const App = {
       else if (page === 'agent') html = await renderAgent();
       else if (page === 'notes') html = await renderNotes();
       else if (page === 'uploads') html = await renderUploads();
+      else if (page === 'queue') html = await renderQueue();
+      else if (page === 'queue-result') html = await renderQueueResult(data);
       else if (page === 'settings') html = await renderSettings();
       content.innerHTML = html;
       if (page === 'uploads') loadUploadsList();
@@ -274,11 +331,17 @@ const App = {
   }
 };
 
-// Nav links
+// Nav links — close sidebar on mobile after navigating
 document.querySelectorAll('.nav-link').forEach(link => {
   link.addEventListener('click', e => {
     e.preventDefault();
-    Router.go(link.dataset.page);
+    if (window.innerWidth <= 900) closeMobileSidebar();
+    const page = link.dataset.page;
+    Router.go(page);
+    // Sync mobile bottom nav active state
+    document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+    const mBtn = document.getElementById('mnav-' + page);
+    if (mBtn) mBtn.classList.add('active');
   });
 });
 
@@ -291,6 +354,7 @@ API.settings.get().then(s => {
   // Init i18n FIRST before using t()
   if (typeof initLang === 'function') initLang(s);
   if (typeof _dateFormat !== 'undefined') window._dateFormat = s.dateFormat || 'relative';
+  if (typeof applyFontScale === 'function') applyFontScale(s.fontSize || 'default');
 
   if (s.ownerName) {
     const subtitle = document.getElementById('pageSubtitle');

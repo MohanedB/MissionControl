@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /c/GITHUB/MissionControl/public/js/components/*.js)",
+      "Bash(ls \"C:\\\\Users\\\\mohan\\\\.openclaw\"\" 2>/dev/null || dir \"C:Usersmohan.openclaw\"\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); g=d.get\\(''''gateway'''',{}\\); print\\(json.dumps\\(g, indent=2\\)\\)\")",
+      "Bash(openclaw agent:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "Bash(ollama list:*)",
+      "Bash(curl -s http://127.0.0.1:11434/api/tags)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3000\")",
+      "Bash(where nodemon:*)",
+      "Bash(npm list:*)",
+      "Bash(npm install:*)",
+      "Bash(findstr \":3000 \")",
+      "Bash(findstr LISTENING)",
+      "Bash(npm --prefix \"C:\\\\GITHUB\\\\MissionControl\" run stop)",
+      "Bash(node -e \":*)",
+      "Bash(node -r dotenv/config --require dotenv/config -e \":*)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"%{http_code}\")",
+      "Bash(taskkill /PID 10900 /F)",
+      "Bash(xargs -I{} taskkill /PID {} /F)",
+      "Bash(cmd /c \"taskkill /PID 10900 /F\")",
+      "Bash(cmd /c \"C:\\\\GITHUB\\\\MissionControl\\\\stop.bat\")",
+      "Bash(powershell -Command \"Stop-Process -Id 10900 -Force\")",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/api/settings)",
+      "Bash(powershell -Command \"Get-Service -Name ''Tailscale'' -ErrorAction SilentlyContinue | Select-Object Name, Status\")",
+      "Bash(tailscale status:*)"
+    ]
+  }
+}

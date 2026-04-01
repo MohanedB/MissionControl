@@ -9,27 +9,27 @@ async function renderDashboard() {
 
   return `
     <div class="stats-grid">
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="Router.go('projects')" title="Voir tous les projets">
         <div class="stat-label">Total Projects</div>
         <div class="stat-value">${stats.totalProjects}</div>
         <div class="stat-change">across all engines</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="Router.go('projects')" title="Voir les projets actifs">
         <div class="stat-label">Active</div>
         <div class="stat-value" style="color:var(--success)">${stats.activeProjects}</div>
         <div class="stat-change">in development</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="Router.go('queue')" title="Voir les tâches">
         <div class="stat-label">Tasks Done</div>
         <div class="stat-value">${stats.doneTasks}<span style="font-size:1rem;color:var(--text-muted)">/${stats.totalTasks}</span></div>
         <div class="stat-change">${stats.totalTasks ? Math.round(stats.doneTasks/stats.totalTasks*100) : 0}% complete</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="Router.go('queue')" title="Voir la queue OpenClaw">
         <div class="stat-label">Queue</div>
         <div class="stat-value" style="color:var(--warning)">${stats.queuedItems}</div>
         <div class="stat-change">tasks waiting</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" onclick="Router.go('notes')" title="Voir le journal">
         <div class="stat-label">Dev Notes</div>
         <div class="stat-value">${stats.totalNotes}</div>
         <div class="stat-change">journal entries</div>
@@ -102,10 +102,17 @@ function statusBadge(status) {
 }
 
 function timeAgo(iso) {
+  if (!iso) return '—';
   const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0) return 'just now';
   const m = Math.floor(diff / 60000);
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
+  const w = Math.floor(d / 7);
+  const mo = Math.floor(d / 30);
+  if (mo >= 12) return `${Math.floor(mo/12)}y ago`;
+  if (mo > 0) return `${mo}mo ago`;
+  if (w > 0) return `${w}w ago`;
   if (d > 0) return `${d}d ago`;
   if (h > 0) return `${h}h ago`;
   if (m > 0) return `${m}m ago`;

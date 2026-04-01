@@ -64,4 +64,8 @@ const API = {
     get:    ()     => API.get('/api/settings'),
     update: (data) => API.put('/api/settings', data),
   },
+  queueControl: {
+    get: ()      => API.get('/api/queue/control'),
+    set: (data)  => API.post('/api/queue/control', data),
+  },
 };

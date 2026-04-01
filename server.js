@@ -11,9 +11,59 @@ const jwt     = require('jsonwebtoken');
 const { execSync, exec } = require('child_process');
 const supabase = require('./lib/supabase');
 
-const IS_VERCEL  = !!process.env.VERCEL;
-const JWT_SECRET = process.env.MC_JWT_SECRET || 'dev-secret';
-const MC_PASSWORD = (process.env.MC_PASSWORD || 'shadow2026').trim();
+const IS_VERCEL          = !!process.env.VERCEL;
+const TAILSCALE_LOCAL_URL = (process.env.TAILSCALE_LOCAL_URL || '').replace(/\/$/, '');
+const JWT_SECRET          = process.env.MC_JWT_SECRET || 'dev-secret';
+const MC_PASSWORD         = (process.env.MC_PASSWORD || 'shadow2026').trim();
+
+// ─── Tailscale proxy: forward requests to local server when on Vercel ─────────
+async function proxyToLocal(req, res) {
+  if (!TAILSCALE_LOCAL_URL) return false;
+  try {
+    const url  = TAILSCALE_LOCAL_URL + req.originalUrl;
+    const init = {
+      method:  req.method,
+      headers: { 'authorization': req.headers.authorization || '', 'content-type': 'application/json' }
+    };
+    if (req.method !== 'GET' && req.method !== 'HEAD') init.body = JSON.stringify(req.body);
+    const r  = await fetch(url, init);
+    const ct = r.headers.get('content-type') || 'application/json';
+    res.status(r.status).set('content-type', ct).send(await r.text());
+    return true;
+  } catch(e) {
+    console.error('[tailscale-proxy]', e.message);
+    return false;
+  }
+}
+
+// SSE-specific proxy — streams the response chunk by chunk
+async function proxySSEToLocal(req, res) {
+  if (!TAILSCALE_LOCAL_URL) return false;
+  try {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    const r = await fetch(TAILSCALE_LOCAL_URL + req.originalUrl, {
+      method:  'POST',
+      headers: { 'authorization': req.headers.authorization || '', 'content-type': 'application/json' },
+      body:    JSON.stringify(req.body)
+    });
+    const reader  = r.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value, { stream: true }));
+    }
+    res.end();
+    return true;
+  } catch(e) {
+    res.write(`data: ${JSON.stringify({ error: 'Tailscale proxy error: ' + e.message })}\n\n`);
+    res.end();
+    return true;
+  }
+}
 const OPENCLAW_TOKEN = 'mc-shadow-2026';
 
 function requireAuth(req, res, next) {
@@ -109,6 +159,22 @@ async function refreshSettingsCache() {
 // Refresh on startup + every 60s
 refreshSettingsCache();
 setInterval(refreshSettingsCache, 60_000);
+
+// ─── DB Migration: add queue columns if missing ───────────────────────────────
+async function migrateQueueTable() {
+  try {
+    // Test if 'result' column exists by selecting it
+    const { error } = await supabase.from('queue').select('result').limit(1);
+    if (error && error.message?.includes('column')) {
+      // Column missing — run migration via rpc if available, otherwise log instructions
+      console.warn('[migrate] queue table missing result/completed_at columns.');
+      console.warn('[migrate] Run in Supabase SQL editor:');
+      console.warn('[migrate]   ALTER TABLE queue ADD COLUMN IF NOT EXISTS result TEXT;');
+      console.warn('[migrate]   ALTER TABLE queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;');
+    }
+  } catch(e) { /* ignore */ }
+}
+migrateQueueTable();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -264,6 +330,17 @@ app.delete('/api/queue/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── API: Queue control (pause / resume / interval) ───────────────────────────
+app.get('/api/queue/control', requireAuth, (req, res) => {
+  res.json({ enabled: _queueEnabled, intervalMs: _queueIntervalMs });
+});
+app.post('/api/queue/control', requireAuth, (req, res) => {
+  const { enabled, intervalMs } = req.body;
+  if (typeof enabled === 'boolean') _queueEnabled = enabled;
+  if (typeof intervalMs === 'number' && intervalMs >= 10_000) _queueIntervalMs = intervalMs;
+  res.json({ enabled: _queueEnabled, intervalMs: _queueIntervalMs });
+});
+
 // ─── API: Settings ────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS = {
@@ -398,54 +475,25 @@ app.post('/api/chat/upload', chatUpload.single('file'), (req, res) => {
   res.json({ ok: true, name: req.file.originalname, size: req.file.size, content });
 });
 
-// ─── API: Chat (proxy to OpenClaw gateway) ────────────────────────────────────
-app.post('/api/chat', requireAuth, (req, res) => {
-  if (IS_VERCEL) return res.json({ disabled: true, message: 'Chat not available in cloud mode. Run Mission Control locally to use AI chat.' });
+// ─── API: Chat (via OpenClaw CLI) ────────────────────────────────────────────
+app.post('/api/chat', requireAuth, async (req, res) => {
+  if (IS_VERCEL) { if (await proxyToLocal(req, res)) return; return res.json({ disabled: true, message: 'Chat unavailable — configure TAILSCALE_LOCAL_URL to enable.' }); }
   const { messages } = req.body;
-  if (!messages || !messages.length) return res.status(400).json({ error: 'No messages' });
-
-  const payload = JSON.stringify({ model: 'openclaw:main', messages, stream: false, user: 'mission-control' });
-  const options = {
-    hostname: '127.0.0.1', port: 18789, path: '/v1/chat/completions', method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-      'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
-      'x-openclaw-agent-id': 'main'
-    }
-  };
-
-  let rawBody = '';
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/json');
-    res.status(proxyRes.statusCode);
-    proxyRes.on('data', chunk => { rawBody += chunk; res.write(chunk); });
-    proxyRes.on('end', () => {
-      res.end();
-      try {
-        const parsed = JSON.parse(rawBody);
-        if (parsed.usage) {
-          _tokenStats.tokensIn  += parsed.usage.prompt_tokens     || parsed.usage.input_tokens  || 0;
-          _tokenStats.tokensOut += parsed.usage.completion_tokens || parsed.usage.output_tokens || 0;
-          _tokenStats.cacheTokens += parsed.usage.cache_read_input_tokens || 0;
-          _tokenStats.calls++;
-        }
-      } catch {}
-    });
-  });
-  proxyReq.on('error', (e) => {
-    if (!res.headersSent) res.status(502).json({ error: 'Gateway unreachable: ' + e.message });
-    else res.end();
-  });
-  proxyReq.write(payload);
-  proxyReq.end();
+  if (!messages?.length) return res.status(400).json({ error: 'No messages' });
+  try {
+    const text = await callOpenClaw(messages);
+    res.json({ choices: [{ message: { role: 'assistant', content: text } }] });
+  } catch(e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
-// ─── API: Chat Streaming ──────────────────────────────────────────────────────
-app.post('/api/chat/stream', requireAuth, (req, res) => {
+// ─── API: Chat Streaming (via OpenClaw CLI, word-by-word SSE) ─────────────────
+app.post('/api/chat/stream', requireAuth, async (req, res) => {
   if (IS_VERCEL) {
+    if (await proxySSEToLocal(req, res)) return;
     res.setHeader('Content-Type', 'text/event-stream');
-    res.write(`data: ${JSON.stringify({ error: 'Not available in cloud mode' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: 'Chat unavailable — configure TAILSCALE_LOCAL_URL to enable.' })}\n\n`);
     return res.end();
   }
   const { messages } = req.body;
@@ -456,33 +504,28 @@ app.post('/api/chat/stream', requireAuth, (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const payload = JSON.stringify({ model: 'openclaw:main', messages, stream: true, user: 'mission-control' });
-  const options = {
-    hostname: '127.0.0.1', port: 18789, path: '/v1/chat/completions', method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-      'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
-      'x-openclaw-agent-id': 'main'
-    }
-  };
+  // Keepalive ping every 15s so the browser doesn't drop the connection
+  // while OpenClaw is working through its fallback chain
+  const keepalive = setInterval(() => {
+    if (!res.writableEnded) res.write(': ping\n\n');
+  }, 15_000);
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    proxyRes.on('data', chunk => {
-      res.write(chunk);
-    });
-    proxyRes.on('end', () => {
-      res.write('data: [DONE]\n\n');
-      res.end();
-    });
-  });
-  proxyReq.on('error', (e) => {
-    res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
-    res.end();
-  });
-  req.on('close', () => proxyReq.destroy());
-  proxyReq.write(payload);
-  proxyReq.end();
+  try {
+    const text = await callOpenClaw(messages, 120_000);
+    clearInterval(keepalive);
+    // Stream word-by-word for a natural feel
+    const tokens = text.match(/\S+\s*/g) || [text];
+    for (const token of tokens) {
+      if (res.writableEnded) break;
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: token } }] })}\n\n`);
+      await new Promise(r => setTimeout(r, 12));
+    }
+    res.write('data: [DONE]\n\n');
+  } catch(e) {
+    clearInterval(keepalive);
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+  }
+  if (!res.writableEnded) res.end();
 });
 
 // ─── Read auth profiles + usage stats from OpenClaw ─────────────────────────
@@ -812,8 +855,8 @@ app.get('/api/agent-status', requireAuth, async (req, res) => {
 const OPENCLAW_PS1 = 'C:\\Users\\mohan\\AppData\\Roaming\\npm\\openclaw.ps1';
 const NODE_EXE    = process.execPath;
 
-app.post('/api/openclaw/control', requireAuth, (req, res) => {
-  if (IS_VERCEL) return res.json({ ok: false, output: '⚠️ Gateway control not available in cloud mode.\nUse localhost:3000 to control the gateway.' });
+app.post('/api/openclaw/control', requireAuth, async (req, res) => {
+  if (IS_VERCEL) { if (await proxyToLocal(req, res)) return; return res.json({ ok: false, output: '⚠️ Gateway control not available in cloud mode.' }); }
   const { action } = req.body;
   if (!['start','stop','status'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
 
@@ -914,8 +957,206 @@ app.post('/api/local/scan', requireAuth, (req, res) => {
 
     res.json({ folders });
   } catch(e) {
-    res.status(500).jsson({ error: e.message });
+    res.status(500).json({ error: e.message });
   }
+});
+
+// ─── Queue Dispatcher ─────────────────────────────────────────────────────────
+
+// Sends a message to OpenClaw via CLI and returns the response text as a Promise
+function callOpenClaw(messages, timeoutMs = 180_000) {
+  return new Promise((resolve, reject) => {
+    // Build the message text from the messages array (system + user)
+    const userMsg = messages.filter(m => m.role === 'user').map(m => m.content).join('\n');
+    const sysMsg  = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
+    const fullMsg = sysMsg ? `${sysMsg}\n\n${userMsg}` : userMsg;
+
+    const cmd = `openclaw agent --agent main --json --message ${JSON.stringify(fullMsg)}`;
+    exec(cmd, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(err.message || stderr));
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        if (parsed.status !== 'ok') return reject(new Error(parsed.error || 'OpenClaw returned non-ok status'));
+        const text = parsed.result?.payloads?.map(p => p.text).filter(Boolean).join('\n') || '';
+        if (!text) return reject(new Error('Empty response from OpenClaw'));
+
+        // Track token usage
+        const usage = parsed.result?.meta?.agentMeta?.lastCallUsage || parsed.result?.meta?.agentMeta?.usage;
+        if (usage) {
+          _tokenStats.tokensIn  += usage.input  || 0;
+          _tokenStats.tokensOut += usage.output || 0;
+          _tokenStats.cacheTokens += usage.cacheRead || 0;
+          _tokenStats.calls++;
+        }
+        resolve(text);
+      } catch(e) {
+        reject(new Error('Could not parse OpenClaw response: ' + e.message + '\nRaw: ' + stdout.slice(0, 300)));
+      }
+    });
+  });
+}
+
+// Probes the OpenClaw gateway — resolves true if up, false if down
+function isGatewayUp() {
+  return new Promise(resolve => {
+    const probe = http.request(
+      { hostname: '127.0.0.1', port: 18789, path: '/health', method: 'HEAD' },
+      () => resolve(true)
+    );
+    probe.on('error', () => resolve(false));
+    probe.setTimeout(3000, () => { probe.destroy(); resolve(false); });
+    probe.end();
+  });
+}
+
+let _queueProcessing = false;
+let _queueEnabled    = true;            // can be toggled live via /api/queue/control
+let _queueIntervalMs = 30_000;          // default 30s, adjustable via /api/queue/control
+const QUEUE_STALE_MS = 8 * 60 * 1000;  // 8 minutes = stale task
+
+async function processQueue() {
+  if (IS_VERCEL || _queueProcessing || !_queueEnabled) return;
+
+  const up = await isGatewayUp();
+  if (!up) return; // OpenClaw offline — skip silently
+
+  // Fetch all queue items
+  const { data: allItems, error } = await supabase.from('queue').select('*');
+  if (error || !allItems) return;
+
+  // Recover stale in-progress tasks (server restart or timeout with no cleanup)
+  const stale = allItems.filter(q =>
+    q.status === 'in-progress' &&
+    q.updated_at && (Date.now() - new Date(q.updated_at).getTime()) > QUEUE_STALE_MS
+  );
+  for (const s of stale) {
+    console.warn(`[queue] ⚠️ Stale task detected "${s.title}" (in-progress > 8min) — resetting to queued`);
+    await supabase.from('queue').update({ status: 'queued' }).eq('id', s.id);
+  }
+
+  // Re-fetch after stale cleanup
+  const activeInProgress = allItems.filter(q =>
+    q.status === 'in-progress' &&
+    !(q.updated_at && (Date.now() - new Date(q.updated_at).getTime()) > QUEUE_STALE_MS)
+  );
+  if (activeInProgress.length > 0) return; // Genuinely still processing
+
+  // Pick next item: high priority first, then oldest
+  const PRIO = { high: 0, medium: 1, low: 2 };
+  const next = allItems
+    .filter(q => q.status === 'queued')
+    .sort((a, b) => {
+      const pd = (PRIO[a.priority] ?? 1) - (PRIO[b.priority] ?? 1);
+      return pd !== 0 ? pd : new Date(a.created_at) - new Date(b.created_at);
+    })[0];
+
+  if (!next) return; // Queue empty
+
+  _queueProcessing = true;
+  console.log(`[queue] ▶ Dispatching: "${next.title}" (${next.priority})`);
+
+  // Mark in-progress
+  await supabase.from('queue').update({ status: 'in-progress' }).eq('id', next.id);
+
+  try {
+    // Fetch project context if the task is linked to a project
+    let projectContext = '';
+    if (next.project) {
+      const { data: projects } = await supabase.from('projects').select('*');
+      const proj = (projects || []).find(p =>
+        p.name === next.project || p.id === next.project
+      );
+      if (proj) {
+        const parts = [
+          `Project: ${proj.name}`,
+          proj.engine      ? `Engine: ${proj.engine}`           : '',
+          proj.language    ? `Language: ${proj.language}`       : '',
+          proj.description ? `Description: ${proj.description}` : '',
+          proj.repo_url    ? `GitHub repo: ${proj.repo_url}`    : '',
+          proj.tags        ? `Tags: ${proj.tags}`               : '',
+          proj.status      ? `Status: ${proj.status}`           : '',
+        ].filter(Boolean);
+        projectContext = `\n\nProject context:\n${parts.join('\n')}`;
+      } else {
+        projectContext = `\nProject: ${next.project}`;
+      }
+    }
+
+    // Fetch all projects so OpenClaw can reference them
+    const { data: allProjects } = await supabase.from('projects').select('id, name, engine, language, description, repo_url, status');
+    const projectList = (allProjects || [])
+      .map(p => `- ${p.name}${p.engine ? ` (${p.engine})` : ''}${p.language ? `/${p.language}` : ''}${p.repo_url ? ` — ${p.repo_url}` : ''}${p.status ? ` [${p.status}]` : ''}`)
+      .join('\n');
+
+    const systemPrompt = [
+      'You are OpenClaw, an autonomous AI development agent with full access to the workspace, filesystem, GitHub, and development tools.',
+      'A task has been dispatched to you from the Mission Control queue. Complete it autonomously — do NOT ask clarifying questions, just do your best with the information available.',
+      'Be thorough but concise in your response.',
+      projectContext,
+      projectList ? `\nAll known projects:\n${projectList}` : '',
+      next.description ? `\nTask details: ${next.description}` : '',
+    ].filter(Boolean).join('');
+
+    const result = await callOpenClaw([
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: next.title }
+    ]);
+
+    // Store result — gracefully handles missing columns
+    const update = { status: 'done' };
+    const { error: e1 } = await supabase.from('queue')
+      .update({ ...update, result: result.slice(0, 4000), completed_at: new Date().toISOString() })
+      .eq('id', next.id);
+    if (e1 && e1.message?.includes('column')) {
+      // Columns not yet migrated — just update status
+      await supabase.from('queue').update(update).eq('id', next.id);
+    }
+    console.log(`[queue] ✅ Done: "${next.title}"`);
+  } catch(e) {
+    console.error(`[queue] ❌ Failed: "${next.title}":`, e.message);
+    // Reset to queued so user can retry
+    const update = { status: 'queued' };
+    const { error: e1 } = await supabase.from('queue')
+      .update({ ...update, result: `Error: ${e.message}` })
+      .eq('id', next.id);
+    if (e1 && e1.message?.includes('column')) {
+      await supabase.from('queue').update(update).eq('id', next.id);
+    }
+  } finally {
+    _queueProcessing = false;
+  }
+}
+
+// Manual dispatch trigger
+app.post('/api/queue/dispatch', requireAuth, async (req, res) => {
+  if (IS_VERCEL) { if (await proxyToLocal(req, res)) return; return res.json({ ok: false, message: 'Not available in cloud mode — configure TAILSCALE_LOCAL_URL to enable.' }); }
+
+  // Check if OpenClaw gateway is reachable
+  const up = await isGatewayUp();
+  if (!up) return res.json({ ok: false, message: 'OpenClaw gateway hors ligne (port 18789 injoignable)' });
+
+  // Check if already processing
+  if (_queueProcessing) return res.json({ ok: false, message: 'OpenClaw traite déjà une tâche en ce moment' });
+
+  // Check queue for pending items — also reset any stale in-progress tasks
+  const { data: allItems } = await supabase.from('queue').select('*');
+  const stale = (allItems || []).filter(q =>
+    q.status === 'in-progress' &&
+    q.updated_at && (Date.now() - new Date(q.updated_at).getTime()) > QUEUE_STALE_MS
+  );
+  for (const s of stale) {
+    console.warn(`[queue/dispatch] ⚠️ Resetting stale task "${s.title}"`);
+    await supabase.from('queue').update({ status: 'queued' }).eq('id', s.id);
+  }
+  const queued = (allItems || [])
+    .filter(q => q.status === 'queued' || stale.find(s => s.id === q.id));
+  if (!queued.length) return res.json({ ok: false, message: 'Aucune tâche en attente dans la queue' });
+
+  const PRIO = { high: 0, medium: 1, low: 2 };
+  const next = queued.sort((a, b) => (PRIO[a.priority] ?? 1) - (PRIO[b.priority] ?? 1))[0];
+
+  res.json({ ok: true, message: `Dispatch lancé : "${next.title}"` });
+  processQueue().catch(e => console.error('[queue dispatch]', e.message));
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
@@ -933,4 +1174,23 @@ app.listen(PORT, '0.0.0.0', () => {
   pushStatusToSupabase();
   setInterval(pushStatusToSupabase, 30_000);
   console.log('📡 Agent status sync to Supabase started (every 30s)');
+
+  // On startup: reset any tasks stuck in-progress (from previous crashed session)
+  supabase.from('queue').select('id, title, status').then(({ data }) => {
+    const stuck = (data || []).filter(q => q.status === 'in-progress');
+    if (stuck.length) {
+      console.warn(`[queue] 🔄 Startup: resetting ${stuck.length} stuck in-progress task(s) to queued`);
+      stuck.forEach(q => supabase.from('queue').update({ status: 'queued' }).eq('id', q.id).then());
+    }
+  });
+
+  // Self-scheduling loop respects dynamic _queueIntervalMs and _queueEnabled
+  (function scheduleQueue() {
+    setTimeout(async () => {
+      await processQueue();
+      scheduleQueue();
+    }, _queueIntervalMs);
+  })();
+  processQueue();
+  console.log('🤖 Queue dispatcher started (dynamic interval, default 30s)');
 });

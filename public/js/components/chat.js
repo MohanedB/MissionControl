@@ -182,90 +182,6 @@ async function renderChat() {
 
 function chatEmptyState() {
   const prompts = [
-    { icon: '🐛', text: 'Quels sont les bugs connus dans TazUE?' },
-    { icon: '📤', text: 'Push mes derniers changements sur GitHub' },
-    { icon: '📋', text: 'Résume mes notes de projet récentes' },
-    { icon: '🎮', text: 'Fix le bug de smoothing de caméra Look()' },
-  ];
-  return `
-    <div id="chatEmpty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 16px;gap:32px">
-      <div>
-        <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,var(--accent));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:1.5rem;box-shadow:0 4px 24px rgba(88,166,255,.2)">🤖</div>
-        <h3 style="font-size:1.4rem;font-weight:700;margin:0 0 8px;color:var(--text-primary)">Comment puis-je aider?</h3>
-        <p style="font-size:.88rem;color:var(--text-muted);line-height:1.6;margin:0;max-width:400px">Accès complet à ton workspace — code, fichiers, GitHub, recherche.</p>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:560px">
-        ${prompts.map(p => `
-          <button onclick="fillPrompt(this)" data-p="${p.text.replace(/"/g,'&quot;')}"
-            class="chat-suggestion-btn">
-            <span style="font-size:1rem;display:block;margin-bottom:4px">${p.icon}</span>
-            <span>${p.text}</span>
-          </button>`).join('')}
-      </div>
-    </div>
-  `;
-}
-
-function chatBubble(m, index) {
-  const isUser = m.role === 'user';
-
-  if (isUser) {
-    const display = escHtml(m._displayContent || m.content || '');
-    return `
-      <div class="chat-msg-wrap" style="padding-bottom:20px">
-        <div class="chat-msg-inner">
-          <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:10px"
-               onmouseenter="this.querySelector('.chat-user-actions').style.opacity='1'"
-               onmouseleave="this.querySelector('.chat-user-actions').style.opacity='0'">
-            <div class="chat-user-actions" style="opacity:0;transition:.15s;display:flex;gap:4px;align-items:center;padding-bottom:2px">
-              <button class="chat-action-btn" onclick="editUserMessage(${index})" title="Edit">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Éditer
-              </button>
-            </div>
-            <div class="chat-user-bubble">
-              ${m._fileAttached ? `<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:6px;display:flex;align-items:center;gap:4px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>${m._fileAttached}</div>` : ''}
-              ${display}
-            </div>
-            <div class="chat-avatar chat-avatar-user">S</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // Assistant
-  const rendered = typeof renderMarkdown === 'function' ? renderMarkdown(m.content || '') : escHtml(m.content || '');
-  const msgId = 'msg_' + index;
-  return `
-    <div class="chat-msg-wrap" style="padding-bottom:24px">
-      <div class="chat-msg-inner">
-        <div style="display:flex;align-items:flex-start;gap:12px"
-             onmouseenter="this.querySelector('.chat-assistant-actions').style.opacity='1'"
-             onmouseleave="this.querySelector('.chat-assistant-actions').style.opacity='0'">
-          <div class="chat-avatar chat-avatar-bot" style="margin-top:2px">OC</div>
-          <div style="flex:1;min-width:0">
-            <div class="md-response" id="${msgId}" style="font-size:.93rem;line-height:1.75;color:var(--text-primary)">${rendered}</div>
-            <div class="chat-assistant-actions" style="opacity:0;transition:.15s;display:flex;gap:6px;margin-top:10px">
-              <button class="chat-action-btn" onclick="copyMessage('${msgId}')">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                Copier
-              </button>
-              ${index === _chatHistory.length - 1 ? `
-              <button class="chat-action-btn" onclick="retryLastMessage()">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.75"/></svg>
-                Réessayer
-              </button>` : ''}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function chatEmptyState() {
-  const prompts = [
     'What are the known bugs in TazUE?',
     'Push my latest changes to GitHub',
     'Summarize my recent project notes',
@@ -300,7 +216,6 @@ function fillPrompt(btn) {
 
 function chatBubble(m, index) {
   const isUser = m.role === 'user';
-  const ts = m._ts ? `<span style="font-size:.68rem;color:var(--text-muted);opacity:0">${m._ts}</span>` : '';
 
 if (isUser) {
   const display = escHtml(m._displayContent || m.content || '');
@@ -329,23 +244,30 @@ if (isUser) {
   // Assistant
   const rendered = typeof renderMarkdown === 'function' ? renderMarkdown(m.content || '') : escHtml(m.content || '');
   const msgId = 'msg_' + index;
+  const ts = m._ts || '';
   return `
-    <div class="chat-assistant-row" style="padding:4px 0 28px;width:100%"
-         onmouseenter="this.querySelector('.chat-assistant-actions').style.opacity='1'"
-         onmouseleave="this.querySelector('.chat-assistant-actions').style.opacity='0'">
-      <div class="md-response" id="${msgId}" style="font-size:.9rem;line-height:1.75;color:var(--text-primary)">${rendered}</div>
-      <div class="chat-assistant-actions" style="opacity:0;transition:.15s;display:flex;gap:6px;margin-top:8px">
-        <button onclick="copyMessage('${msgId}')" title="Copy"
-          style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:3px 10px;font-size:.72rem;cursor:pointer;display:flex;align-items:center;gap:4px"
-          onmouseenter="this.style.color='var(--text-primary)'" onmouseleave="this.style.color='var(--text-muted)'">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          Copy
-        </button>
-        ${index === _chatHistory.length - 1 ? `
-        <button onclick="retryLastMessage()" title="Retry"
-          style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:3px 10px;font-size:.72rem;cursor:pointer"
-          onmouseenter="this.style.color='var(--text-primary)'" onmouseleave="this.style.color='var(--text-muted)'">↻ Retry</button>
-        ` : ''}
+    <div class="chat-msg-wrap chat-assistant-row" style="padding-bottom:24px">
+      <div class="chat-msg-inner">
+        <div style="display:flex;align-items:flex-start;gap:12px"
+             onmouseenter="this.querySelector('.chat-assistant-actions').style.opacity='1'"
+             onmouseleave="this.querySelector('.chat-assistant-actions').style.opacity='0'">
+          <div class="chat-avatar chat-avatar-bot" style="margin-top:2px">OC</div>
+          <div style="flex:1;min-width:0">
+            ${ts ? `<div style="font-size:.68rem;color:var(--text-muted);margin-bottom:4px">${ts}</div>` : ''}
+            <div class="md-response" id="${msgId}" style="font-size:.93rem;line-height:1.75;color:var(--text-primary)">${rendered}</div>
+            <div class="chat-assistant-actions" style="opacity:0;transition:.15s;display:flex;gap:6px;margin-top:10px">
+              <button class="chat-action-btn" onclick="copyMessage('${msgId}')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copier
+              </button>
+              ${index === _chatHistory.length - 1 ? `
+              <button class="chat-action-btn" onclick="retryLastMessage()">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.75"/></svg>
+                Réessayer
+              </button>` : ''}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -477,7 +399,7 @@ async function sendChat() {
 
     document.getElementById('typingDots')?.remove();
 
-    // Crée la bulle de streaming
+    // Crée la bulle de streaming avec un indicateur "thinking" jusqu'au 1er token
     const streamWrap = document.createElement('div');
     streamWrap.className = 'chat-msg-wrap';
     streamWrap.style.paddingBottom = '24px';
@@ -486,16 +408,39 @@ async function sendChat() {
         <div style="display:flex;align-items:flex-start;gap:12px">
           <div class="chat-avatar chat-avatar-bot" style="margin-top:2px">OC</div>
           <div style="flex:1;min-width:0">
+            <div id="streamThinking" style="display:flex;align-items:center;gap:8px;padding:6px 0;color:var(--text-muted);font-size:.83rem">
+              <span style="display:flex;gap:4px">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:chatDot 1.4s infinite"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:chatDot 1.4s infinite .2s"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:chatDot 1.4s infinite .4s"></span>
+              </span>
+              <span id="streamStatus">Thinking…</span>
+            </div>
             <div class="md-response stream-content" style="font-size:.93rem;line-height:1.75;color:var(--text-primary)"></div>
           </div>
         </div>
       </div>`;
     container.appendChild(streamWrap);
     const contentDiv = streamWrap.querySelector('.stream-content');
+    const thinkingEl = streamWrap.querySelector('#streamThinking');
+    const statusEl   = streamWrap.querySelector('#streamStatus');
+    scrollChat(true);
+
+    // Update status label every few seconds so user knows it's alive
+    let thinkSecs = 0;
+    const thinkTimer = setInterval(() => {
+      thinkSecs += 5;
+      if (statusEl) statusEl.textContent = thinkSecs < 15
+        ? 'Thinking…'
+        : thinkSecs < 40
+          ? `Working on it… (${thinkSecs}s)`
+          : `Still going… (${thinkSecs}s) — model fallback in progress`;
+    }, 5000);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let firstToken = false;
     streamWorked = true;
 
     while (true) {
@@ -513,6 +458,11 @@ async function sendChat() {
           if (parsed.error) { fullText = '⚠️ ' + parsed.error; streamWorked = false; break; }
           const delta = parsed.choices?.[0]?.delta?.content || '';
           if (delta) {
+            if (!firstToken) {
+              firstToken = true;
+              clearInterval(thinkTimer);
+              if (thinkingEl) thinkingEl.remove();
+            }
             fullText += delta;
             contentDiv.innerHTML = typeof renderMarkdown === 'function'
               ? renderMarkdown(fullText)
@@ -523,6 +473,8 @@ async function sendChat() {
       }
       if (!streamWorked) break;
     }
+
+    clearInterval(thinkTimer);
 
     // Remplace la bulle de stream par la bulle finale (avec boutons copy/retry)
     streamWrap.remove();

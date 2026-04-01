@@ -9,15 +9,16 @@ const Router = {
       l.classList.toggle('active', l.dataset.page === page);
     });
     const titles = {
-      dashboard: ['Dashboard', 'Welcome back, Shadow'],
-      projects:  ['Projects', 'All your game projects'],
-      project:   [data?.name || 'Project', data?.engine || ''],
-      chat:      ['Chat', 'Message OpenClaw directly'],
-      tasks:     ['Tâches', 'File de travail pour OpenClaw'],
-      agent:     ['Agent Status', 'Tokens, sessions, logs en direct'],
-      notes:     ['Dev Diary', 'Your development journal'],
-      uploads:   ['Uploads', 'PDFs & files for OpenClaw to process'],
-      settings:  ['Settings', 'Configure Mission Control'],
+      dashboard:     ['Dashboard', 'Welcome back, Shadow'],
+      projects:      ['Projects', 'All your game projects'],
+      project:       [data?.name || 'Project', data?.engine || ''],
+      chat:          ['Chat', 'Message OpenClaw directly'],
+      queue:         ['OpenClaw Queue', 'Kanban des tâches OpenClaw'],
+      'queue-result':['Task Output', data?.title || ''],
+      agent:         ['Agent Status', 'Tokens, sessions, logs en direct'],
+      notes:         ['Dev Diary', 'Your development journal'],
+      uploads:       ['Uploads', 'PDFs & files for OpenClaw to process'],
+      settings:      ['Settings', 'Configure Mission Control'],
     };
     const [title, sub] = titles[page] || [page, ''];
     document.getElementById('pageTitle').textContent = title;
